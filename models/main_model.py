@@ -2,19 +2,27 @@ from PyQt5.QtCore import QObject, pyqtSignal
 
 
 class MainModel(QObject):
-    # signal_button_status = pyqtSignal(bool, bool)
+    signal_txt_save_status = pyqtSignal(str, str)
+    signal_img_save_status = pyqtSignal(str, str)
 
     def __init__(self):
         super().__init__()
-        # self.pushButtonTxtSave_status = False
-        # self.pushButtonGen_status = False
-        # self.pushButtonImgSave_status = False
 
-    # def check_buttons(self, txt):
-    #     if txt == "" or txt.isspace():
-    #         self.pushButtonTxtSave_status = False
-    #         self.pushButtonGen_status = False
-    #     else:
-    #         self.pushButtonTxtSave_status = True
-    #         self.pushButtonGen_status = True
-    #     self.signal_button_status.emit(self.pushButtonTxtSave_status, self.pushButtonGen_status)
+    def save_text_to_file(self, filepath, text):
+        try:
+            with open(filepath, 'w', encoding='utf-8') as file:
+                file.write(text)
+            self.signal_txt_save_status.emit("Успех!", f"Файл успешно сохранен: {filepath}")
+        except Exception as e:
+            self.signal_txt_save_status.emit("Ошибка!", f"Ошибка при сохранении: {str(e)}")
+
+    def save_img_to_file(self, file_path, file_format, pixmap_data):
+        success = pixmap_data.save(file_path, file_format)
+        if not success:
+            self.signal_img_save_status.emit("Ошибка!", f"Не удалось сохранить изображение!")
+        else:
+            self.signal_img_save_status.emit("Успех!", f"Изображение успешно сохранено!")
+
+    def gen_img(self, txt):
+        print('gen', txt)
+        pass

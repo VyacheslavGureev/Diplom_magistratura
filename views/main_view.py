@@ -1,4 +1,5 @@
-from PyQt5.QtWidgets import QMainWindow, QFileDialog, QMessageBox
+from PyQt5.QtGui import QPixmap
+from PyQt5.QtWidgets import QMainWindow, QFileDialog, QMessageBox, QGraphicsScene, QGraphicsPixmapItem
 
 from guipy.ui import Ui_MainWindow
 
@@ -21,27 +22,44 @@ class MainView(QMainWindow):
         self.ui.pushButtonTxtSave.setEnabled(False)
         self.ui.pushButtonGen.setEnabled(False)
         self.ui.pushButtonImgSave.setEnabled(False)
+        self.scene = QGraphicsScene()
+        self.ui.graphicsViewImg.setScene(self.scene)
+        self.pixmap_item = None
+
         self.connects()
         self.subscribe_to_viewmodel()
 
     def connects(self):
-        self.ui.textEditTxtRequest.textChanged.connect(
-            lambda: self.viewmodel.check_buttons(self.ui.textEditTxtRequest.toPlainText()))
+        self.ui.textEditTxtRequest.textChanged.connect(self.txt_check)
         self.ui.pushButtonTxtSave.released.connect(self.save_txt)
+        self.ui.pushButtonGen.released.connect(self.gen_img)
+        self.ui.pushButtonImgSave.released.connect(self.save_img)
 
     def subscribe_to_viewmodel(self):
         self.viewmodel.signal_button_status.connect(self.buttons_status_show)
         self.viewmodel.signal_open_save_txt_dial.connect(self.open_txt_save_dial)
-        self.viewmodel.signal_txt_save_status.connect(self.show_txt_save_status)
+        self.viewmodel.signal_open_save_img_dial.connect(self.open_img_save_dial)
+        self.viewmodel.signal_txt_save_status.connect(self.show_save_status)
+        self.viewmodel.signal_img_save_status.connect(self.show_save_status)
+        self.viewmodel.signal_open_load_img_dial.connect(self.open_load_img_dial)
 
     def buttons_status_show(self, btn_txt, btn_gen):
         self.ui.pushButtonTxtSave.setEnabled(btn_txt)
         self.ui.pushButtonGen.setEnabled(btn_gen)
 
-    def save_txt(self):
+    def txt_check(self):
         text = self.ui.textEditTxtRequest.toPlainText()
+        self.viewmodel.check_buttons(text)
         self.viewmodel.set_text_data(text)
+
+    def save_txt(self):
         self.viewmodel.request_save_file()
+
+    def save_img(self):
+        self.viewmodel.request_save_img()
+
+    def gen_img(self):
+        self.viewmodel.request_gen_img()
 
     def open_txt_save_dial(self):
         file_path, _ = QFileDialog.getSaveFileName(
@@ -53,7 +71,39 @@ class MainView(QMainWindow):
         if file_path:
             self.viewmodel.save_text_to_file(file_path)
 
-    def show_txt_save_status(self, status_txt, status_msg):
+    def open_img_save_dial(self):
+        file_path, selected_filter = QFileDialog.getSaveFileName(
+            self,
+            "Сохранить изображение",
+            "",
+            "PNG Files (*.png);;JPEG Files (*.jpg);;BMP Files (*.bmp)"
+        )
+        if file_path:
+            # Определяем формат из фильтра
+            if "PNG" in selected_filter:
+                file_format = "PNG"
+            elif "JPEG" in selected_filter:
+                file_format = "JPEG"
+            elif "BMP" in selected_filter:
+                file_format = "BMP"
+            else:
+                file_format = "PNG"  # По умолчанию
+            # Сохраняем изображение в выбранном формате
+            self.viewmodel.save_img_to_file(file_path, file_format)
+
+    def open_load_img_dial(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Открыть изображение", "", "Images (*.png *.jpg *.bmp)")
+        if file_path:
+            pixmap = QPixmap(file_path)
+            if not pixmap.isNull():
+                self.scene.clear()
+                self.pixmap_item = QGraphicsPixmapItem(pixmap)
+                self.scene.addItem(self.pixmap_item)
+                self.ui.graphicsViewImg.fitInView(self.pixmap_item, mode=1)
+                self.viewmodel.set_pixmap_data(pixmap)
+                self.ui.pushButtonImgSave.setEnabled(True)
+
+    def show_save_status(self, status_txt, status_msg):
         self.msg = QMessageBox()
         self.msg.setWindowTitle(status_txt)
         self.msg.setText(status_msg)
