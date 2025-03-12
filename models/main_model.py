@@ -1,5 +1,7 @@
 from PyQt5.QtCore import QObject, pyqtSignal
 
+import models.nn_model as neural
+
 
 class MainModel(QObject):
     signal_txt_save_status = pyqtSignal(str, str)
@@ -25,4 +27,8 @@ class MainModel(QObject):
 
     def gen_img(self, txt):
         print('gen', txt)
-        pass
+        device, model, optimizer, criterion = neural.create_model()
+
+
+
+

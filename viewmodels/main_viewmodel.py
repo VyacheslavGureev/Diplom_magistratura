@@ -54,9 +54,9 @@ class MainViewModel(QObject):
         self.model.save_img_to_file(file_path, file_format, self.pixmap_data)
 
     def request_gen_img(self):
-        self.signal_open_load_img_dial.emit()
+        # self.signal_open_load_img_dial.emit()
 
-        # self.model.gen_img(self.text_data)
+        self.model.gen_img(self.text_data)
 
     def return_txt_save_status(self, status_txt, msg):
         self.signal_txt_save_status.emit(status_txt, msg)
