@@ -29,6 +29,11 @@ class MainView(QMainWindow):
         self.connects()
         self.subscribe_to_viewmodel()
 
+
+        self.ui.textEditTxtRequest.setText('1')
+        self.ui.pushButtonGen.released.emit()
+
+
     def connects(self):
         self.ui.textEditTxtRequest.textChanged.connect(self.txt_check)
         self.ui.pushButtonTxtSave.released.connect(self.save_txt)

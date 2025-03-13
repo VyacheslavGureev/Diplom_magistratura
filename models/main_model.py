@@ -1,6 +1,7 @@
 from PyQt5.QtCore import QObject, pyqtSignal
 
 import models.nn_model as neural
+import models.load_datas as ld
 
 
 class MainModel(QObject):
@@ -28,6 +29,26 @@ class MainModel(QObject):
     def gen_img(self, txt):
         print('gen', txt)
         device, model, optimizer, criterion = neural.create_model()
+        dataset = ld.create_dataset("datas/Flickr8k/Images/", "datas/Flickr8k/captions/captions.txt")
+        neural.train_ddpm(model, optimizer, dataset, 100)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

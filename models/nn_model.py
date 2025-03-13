@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.utils.data import random_split, DataLoader
 
 # --- Гиперпараметры ---
 IMG_SIZE = 32  # Размер изображений
@@ -28,6 +29,7 @@ class SinusoidalTimeEmbedding(nn.Module):
     def forward(self, t):
         """t — это тензор со значениями [0, T], размерность (B,)"""
         half_dim = self.embed_dim // 2
+        # freqs = torch.exp(-torch.arange(half_dim, dtype=torch.float32) * (torch.log(torch.tensor(10000.0)) / half_dim))
         freqs = torch.exp(-torch.arange(half_dim, dtype=torch.float32) * (torch.log(torch.tensor(10000.0)) / half_dim))
         angles = t[:, None] * freqs[None, :]
         time_embedding = torch.cat([torch.sin(angles), torch.cos(angles)], dim=-1)
@@ -72,6 +74,12 @@ class CrossAttentionMultiHead(nn.Module):
         self.Wk = nn.Linear(text_emb_dim, C)  # Key из текста
         self.Wv = nn.Linear(text_emb_dim, C)  # Value из текста
 
+
+
+
+
+
+
     def forward(self, x, text_emb):
         B, C, H, W = x.shape
         x_flat = x.view(B, C, H * W).permute(0, 2, 1)  # (B, H*W, C)
@@ -93,6 +101,31 @@ class CrossAttentionMultiHead(nn.Module):
         B, HW, C = attn_out.shape
         attn_out = attn_out.permute(0, 2, 1).view(B, C, H,
                                                   W)  # (B, C, H, W) (H и W не меняются, поэтому делаем преобразование без доп. проверок)
+        return attn_out
+
+    def forward(self, x, text_emb, attention_mask=None):
+        B, C, H, W = x.shape
+        x_flat = x.view(B, C, H * W).permute(0, 2, 1)  # (B, H*W, C)
+
+        Q = self.Wq(x_flat)  # (B, H*W, C)
+        K = self.Wk(text_emb)  # (B, T, C)
+        V = self.Wv(text_emb)  # (B, T, C)
+
+        Q = Q.view(B, -1, self.num_heads, C // self.num_heads).transpose(1, 2)
+        K = K.view(B, -1, self.num_heads, C // self.num_heads).transpose(1, 2)
+        V = V.view(B, -1, self.num_heads, C // self.num_heads).transpose(1, 2)
+
+        attn_scores = torch.matmul(Q, K.transpose(-2, -1)) * self.scale  # (B, num_heads, H*W, T)
+
+        if attention_mask is not None:
+            attention_mask = attention_mask[:, None, None, :].expand_as(attn_scores)  # (B, 1, 1, T)
+            attn_scores = attn_scores.masked_fill(attention_mask == 0, float('-inf'))
+
+        attn_probs = torch.softmax(attn_scores, dim=-1)
+        attn_out = torch.matmul(attn_probs, V)
+
+        attn_out = attn_out.transpose(1, 2).reshape(B, H * W, C)
+        attn_out = attn_out.permute(0, 2, 1).view(B, C, H, W)
         return attn_out
 
 
@@ -120,7 +153,7 @@ class DeepBottleneck(nn.Module):
         return x
 
 
-class UNet(nn.Module):
+class MyUNet(nn.Module):
     def __init__(self, TXT_EMB_DIM):
         super().__init__()
 
@@ -171,33 +204,101 @@ class UNet(nn.Module):
 # --- Создание модели ---
 def create_model():
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = UNet(TEXT_EMB_DIM).to(device)
+    model = MyUNet(TEXT_EMB_DIM).to(device)
     optimizer = optim.Adam(model.parameters(), lr=LR)
     criterion = nn.MSELoss()
     return device, model, optimizer, criterion
 
 
+# # --- Создание датасета для обучения ---
+# def create_dataset(image_captions):
+#     device = "cuda" if torch.cuda.is_available() else "cpu"
+#     model = MyUNet(TEXT_EMB_DIM).to(device)
+#     optimizer = optim.Adam(model.parameters(), lr=LR)
+#     criterion = nn.MSELoss()
+#     return device, model, optimizer, criterion
+
+
+# # --- Функция обучения ---
+# def train_ddpm(model, dataset, epochs=10):
+#     beta = torch.linspace(0.0001, 0.02, T)  # Линейно возрастающие β_t
+#     alpha = 1 - beta  # α_t
+#     alphas_bar = torch.cumprod(alpha, dim=0)  # Накапливаемый коэффициент ᾱ_t
+#     print(alphas_bar.shape)  # Должно быть [1000] (для каждого t своё значение)
+#     model.train()
+#     for epoch in range(epochs):
+#         for x0, _ in dataset:
+#             x0 = x0.to(device)
+#             t = torch.randint(0, T, (BATCH_SIZE,), device=device)  # случайные шаги t
+#
+#             xt = forward_diffusion(x0, t, alphas_bar)  # добавляем шум
+#             predicted_noise = model(xt)  # модель предсказывает шум
+#             loss = criterion(predicted_noise, torch.randn_like(xt))  # сравниваем с реальным шумом
+#
+#             optimizer.zero_grad()
+#             loss.backward()
+#             optimizer.step()
+#
+#         print(f"Epoch {epoch + 1}, Loss: {loss.item():.4f}")
+
+
+
+def collate_fn(batch):
+    images, text_embs, masks = zip(*batch)  # Разбираем батч по частям
+    images = torch.stack(images)  # Объединяем картинки (B, C, H, W)
+    text_embs = torch.stack(text_embs)  # Объединяем текстовые эмбеддинги (B, max_length, txt_emb_dim)
+    masks = torch.stack(masks)  # Объединяем маски внимания (B, max_length)
+    return images, text_embs, masks
+
 
 # --- Функция обучения ---
-def train_ddpm(model, dataset, epochs=10):
+def train_ddpm(model, optimizer, dataset, epochs):
+    train_size = int(0.75 * len(dataset))
+    val_size = len(dataset) - train_size
+    # Разделяем датасет
+    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+
+    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, collate_fn=collate_fn)
+    val_loader = DataLoader(val_dataset, batch_size=8, shuffle=False, collate_fn=collate_fn)  # Валидацию можно не перемешивать
+
     beta = torch.linspace(0.0001, 0.02, T)  # Линейно возрастающие β_t
     alpha = 1 - beta  # α_t
     alphas_bar = torch.cumprod(alpha, dim=0)  # Накапливаемый коэффициент ᾱ_t
-    print(alphas_bar.shape)  # Должно быть [1000] (для каждого t своё значение)
-    model.train()
+
     for epoch in range(epochs):
-        for x0, _ in dataset:
-            x0 = x0.to(device)
-            t = torch.randint(0, T, (BATCH_SIZE,), device=device)  # случайные шаги t
-
-            xt = forward_diffusion(x0, t, alphas_bar)  # добавляем шум
-            predicted_noise = model(xt)  # модель предсказывает шум
-            loss = criterion(predicted_noise, torch.randn_like(xt))  # сравниваем с реальным шумом
-
+        model.train()  # Включаем режим обучения
+        for images, text_embs, attention_mask in train_loader:
             optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
 
-        print(f"Epoch {epoch + 1}, Loss: {loss.item():.4f}")
 
-# print("Базовая DDPM модель готова! ✅")
+
+            # Прямой проход (Forward)
+            predicted_noise = model(images, encoder_hidden_states=text_embs, attention_mask=attention_mask)
+
+            loss = loss_function(predicted_noise, target)  # Вычисляем ошибку
+            loss.backward()  # Обратный проход (Backpropagation)
+            optimizer.step()  # Обновляем веса модели
+
+        # Оценка на валидационном датасете
+        model.eval()  # Переключаем в режим валидации
+        with torch.no_grad():
+            for images, text_embs, attention_mask in val_loader:
+                predicted_noise = model(images, encoder_hidden_states=text_embs, attention_mask=attention_mask)
+                val_loss = loss_function(predicted_noise, target)
+
+        print(f"Epoch {epoch + 1}, Train Loss: {loss.item()}, Val Loss: {val_loss.item()}")
+
+    # for epoch in range(epochs):
+    #     for x0, _ in dataset:
+    #         x0 = x0.to(device)
+    #         t = torch.randint(0, T, (BATCH_SIZE,), device=device)  # случайные шаги t
+    #
+    #         xt = forward_diffusion(x0, t, alphas_bar)  # добавляем шум
+    #         predicted_noise = model(xt)  # модель предсказывает шум
+    #         loss = criterion(predicted_noise, torch.randn_like(xt))  # сравниваем с реальным шумом
+    #
+    #         optimizer.zero_grad()
+    #         loss.backward()
+    #         optimizer.step()
+    #
+    #     print(f"Epoch {epoch + 1}, Loss: {loss.item():.4f}")
