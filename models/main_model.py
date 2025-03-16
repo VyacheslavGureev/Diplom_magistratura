@@ -30,7 +30,7 @@ class MainModel(QObject):
         print('gen', txt)
         device, model, optimizer, criterion = neural.create_model()
         dataset = ld.create_dataset("datas/Flickr8k/Images/", "datas/Flickr8k/captions/captions.txt")
-        neural.train_ddpm(model, optimizer, dataset, 100)
+        neural.train_ddpm(model, device, optimizer, criterion, dataset, 10)
 
 
 

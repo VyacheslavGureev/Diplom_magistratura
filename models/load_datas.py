@@ -1,4 +1,6 @@
 import json
+import random
+
 import torch
 from torch.utils.data import Dataset, DataLoader
 from transformers import CLIPTokenizer, CLIPTextModel, CLIPProcessor
@@ -7,6 +9,9 @@ import os
 from PIL import Image
 
 from torchvision import transforms
+
+# IMG_SIZE = 256  # Размер изображений
+IMG_SIZE = 128  # Размер изображений
 
 
 class ImageTextDataset(Dataset):
@@ -45,7 +50,7 @@ class ImageTextDataset(Dataset):
         image = Image.open(img_path).convert("RGB")
         image = self.transform(image)  # (C, H, W)
         # Загружаем подпись и получаем текстовый эмбеддинг
-        caption = self.captions[self.image_filenames[idx]][0]  # Берём первую подпись
+        caption = self.captions[self.image_filenames[idx]][random.randint(0, 4)]  # Берём первую подпись
         tokens = self.tokenizer(
             caption,
             return_tensors="pt",
@@ -59,34 +64,12 @@ class ImageTextDataset(Dataset):
         return image, text_emb, attention_mask
 
 
-# def load_datas(filepath):
-#     with open(filepath, "r") as f:
-#         lines = f.readlines()
-#     image_captions = {}
-#     lines = lines[1:]
-#     for line in lines:
-#         img, caption = line.strip().split(",")
-#         if img not in image_captions:
-#             image_captions[img] = []
-#         image_captions[img].append(caption)
-#     # print(image_captions["123456789.jpg"])  # Выведет все подписи к картинке
-#     return image_captions
-
-
-# def collate_fn(batch):
-#     images, text_embs, masks = zip(*batch)  # Разбираем батч по частям
-#     images = torch.stack(images)  # Объединяем картинки (B, C, H, W)
-#     text_embs = torch.stack(text_embs)  # Объединяем текстовые эмбеддинги (B, max_length, txt_emb_dim)
-#     masks = torch.stack(masks)  # Объединяем маски внимания (B, max_length)
-#     return images, text_embs, masks
-
-
 # --- Создание датасета для обучения ---
 def create_dataset(image_folder, captions_file):
     transform = transforms.Compose([
-        transforms.Resize((256, 256)),  # Приводим к 256x256
+        transforms.Resize((IMG_SIZE, IMG_SIZE)),  # Приводим к IMG_SIZExIMG_SIZE
         transforms.ToTensor(),  # Переводим в тензор (C, H, W)
-        transforms.Normalize(mean=[0.5], std=[0.5])  # Нормализация
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # Нормализация
     ])
 
     # Загружаем CLIP
