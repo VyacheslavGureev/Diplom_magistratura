@@ -1,4 +1,3 @@
-import json
 import random
 
 import torch
@@ -11,7 +10,9 @@ from PIL import Image
 from torchvision import transforms
 
 # IMG_SIZE = 256  # Размер изображений
-IMG_SIZE = 128  # Размер изображений
+IMG_SIZE = 4  # Размер изображений
+
+MAX_LEN_TOKENS = 64
 
 
 class ImageTextDataset(Dataset):
@@ -75,7 +76,6 @@ def create_dataset(image_folder, captions_file):
     # Загружаем CLIP
     tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
     text_encoder = CLIPTextModel.from_pretrained("openai/clip-vit-base-patch32")
-    max_len_tokens = 64
 
     # Создаём датасет
     dataset = ImageTextDataset(
@@ -84,15 +84,11 @@ def create_dataset(image_folder, captions_file):
         transform=transform,
         tokenizer=tokenizer,
         text_encoder=text_encoder,
-        max_len_tokens=max_len_tokens
+        max_len_tokens=MAX_LEN_TOKENS
     )
-
-    # Загружаем в `DataLoader`
-    # dataloader = DataLoader(dataset, batch_size=8, shuffle=True, collate_fn=collate_fn)
     return dataset
 
     # Пример батча
     # images, text_embs, masks = next(iter(dataloader))
     # print('[eq', dataset.maxxxx)
 
-    # return images, text_embs, masks

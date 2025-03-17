@@ -3,3 +3,4 @@ __pycache__/
 Portable/
 venv/
 datas/
+trained/

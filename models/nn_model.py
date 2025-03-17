@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import random_split, DataLoader
 import matplotlib.pyplot as plt
+import random
 
 # --- Гиперпараметры ---
 # IMG_SIZE = 32  # Размер изображений
@@ -13,14 +14,14 @@ LR = 1e-4
 TEXT_EMB_DIM = 512
 
 
-# --- Определение форвардного процесса (зашумление) ---
-def forward_diffusion(x0, t, alphas_bar, noise=None):
-    """ Добавляет стандартный гауссовский шум к изображению """
-    if noise is None:
-        noise = torch.randn_like(x0)
-    at = alphas_bar[t][:, None, None, None]
-    xt = torch.sqrt(at) * x0 + torch.sqrt(1 - at) * noise
-    return xt
+# # --- Определение форвардного процесса (зашумление) ---
+# def forward_diffusion(x0, t, alphas_bar, noise=None):
+#     """ Добавляет стандартный гауссовский шум к изображению """
+#     if noise is None:
+#         noise = torch.randn_like(x0)
+#     at = alphas_bar[t][:, None, None, None]
+#     xt = torch.sqrt(at) * x0 + torch.sqrt(1 - at) * noise
+#     return xt
 
 
 # def forward_diffusion_g(x0, t, alphas_bar, noise=None):
@@ -45,7 +46,9 @@ class SinusoidalTimeEmbedding(nn.Module):
         """t — это тензор со значениями [0, T], размерность (B,)"""
         half_dim = self.embed_dim // 2
         # freqs = torch.exp(-torch.arange(half_dim, dtype=torch.float32) * (torch.log(torch.tensor(10000.0)) / half_dim))
-        freqs = torch.exp(-torch.arange(half_dim, dtype=torch.float32) * (torch.log(torch.tensor(10000.0)) / half_dim)).to(self.device)
+        freqs = torch.exp(
+            -torch.arange(half_dim, dtype=torch.float32) * (torch.log(torch.tensor(10000.0)) / half_dim)).to(
+            self.device)
         angles = t[:, None] * freqs[None, :]
         time_embedding = torch.cat([torch.sin(angles), torch.cos(angles)], dim=-1)
         return time_embedding  # (B, embed_dim)
@@ -61,7 +64,6 @@ class UNetEncBlock(nn.Module):
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.time_emb_dim = time_emb_dim
-
 
     # x=(B, inC, H, W)->x=(B, outC, H, W); time_emb=(B, te)->time_emb=(B, outC, 1, 1) (te должен быть равен time_emb_dim)
     def forward(self, x, time_emb):
@@ -105,7 +107,6 @@ class CrossAttentionMultiHead(nn.Module):
         self.Wv = nn.Linear(text_emb_dim, C)  # Value из текста
         self.text_emb_dim = text_emb_dim
         self.C = C
-
 
     def forward(self, x, text_emb, attention_mask):
         B, C, H, W = x.shape
@@ -194,7 +195,6 @@ class MyUNet(nn.Module):
         # --- Encoder (Downsampling) ---
         # print(time_t.device)
 
-
         time_emb = self.time_embedding(time_t)
         x1 = self.unet_enc_1(x, time_emb)  # time_t = (B, t), # x1 = (B, 64, H, W)
         x1_pooled = self.pool(x1)  # (B, 64, H/2, W/2)
@@ -217,21 +217,229 @@ class MyUNet(nn.Module):
         return x_dec2
 
 
+class EncapsulatedModel:
+    def __init__(self):
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(self.device)
+        self.model = MyUNet(TEXT_EMB_DIM, self.device).to(self.device)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=LR)
+        self.criterion = nn.MSELoss()
+
+
+class EncapsulatedDataloaders:
+    def __init__(self, train, val, test):
+        self.train = train
+        self.val = val
+        self.test = test
+
+
+class ModelManager():
+
+    def __init__(self):
+        pass
+
+    # --- Создание модели ---
+    def create_model(self):
+        return EncapsulatedModel()
+
+    def create_dataloaders(self, dataset, train_size_percent, val_size_percent):
+        # Разделяем датасеты
+        train_size = int(train_size_percent * len(dataset))
+        val_size = int(val_size_percent * len(dataset))
+        test_size = len(dataset) - train_size - val_size
+        train_dataset, val_dataset, test_dataset = random_split(dataset,
+                                                                [train_size, val_size, test_size])
+        train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,
+                                  collate_fn=self.collate_fn)
+        val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True,
+                                collate_fn=self.collate_fn)
+        test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False,
+                                 collate_fn=self.collate_fn)  # Тестовый датасет можно не перемешивать
+        e_loader = EncapsulatedDataloaders(train_loader, val_loader, test_loader)
+        return e_loader
+
+    def collate_fn(self, batch):
+        if len(batch) % BATCH_SIZE != 0:
+            additional_batch = random.choices(batch, k=BATCH_SIZE - (len(batch) % BATCH_SIZE))
+            batch = batch + additional_batch
+        images, text_embs, masks = zip(*batch)  # Разбираем батч по частям
+        images = torch.stack(images)  # Объединяем картинки (B, C, H, W)
+        text_embs = torch.stack(text_embs)  # Объединяем текстовые эмбеддинги (B, max_length, txt_emb_dim)
+        masks = torch.stack(masks)  # Объединяем маски внимания (B, max_length)
+        return images, text_embs, masks
+
+    # --- Определение форвардного процесса (зашумление) ---
+    def forward_diffusion(self, x0, t, alphas_bar, noise=None):
+        """ Добавляет стандартный гауссовский шум к изображению """
+        if noise is None:
+            noise = torch.randn_like(x0)
+        at = alphas_bar[t][:, None, None, None]
+        xt = torch.sqrt(at) * x0 + torch.sqrt(1 - at) * noise
+        return xt
+
+    def train_model(self, e_model, e_loader, epochs):
+        for epoch in range(epochs):
+            train_loss = self.training_model(e_model, e_loader)
+            val_loss = self.validating_model(e_model, e_loader)
+            print(f"Epoch {epoch + 1}, Train Loss: {train_loss.item()}, Val Loss: {val_loss.item()}")
+
+    def training_model(self, e_model: EncapsulatedModel, e_loader: EncapsulatedDataloaders):
+        print("Тренировка")
+        model = e_model.model
+        device = e_model.device
+        optimizer = e_model.optimizer
+        criterion = e_model.criterion
+        train_loader = e_loader.train
+
+        model.train()  # Включаем режим обучения
+
+        beta = torch.linspace(0.0001, 0.02, T)  # Линейно возрастающие b_t
+        alpha = 1 - beta  # a_t
+        alphas_bar = torch.cumprod(alpha, dim=0).to(device)  # Накапливаемый коэффициент a_t (T,)
+
+        loss = None
+        i = 0
+        for images, text_embs, attention_mask in train_loader:
+            optimizer.zero_grad()
+
+            images, text_embs, attention_mask = images.to(device), text_embs.to(device), attention_mask.to(device)
+            t = torch.randint(0, T, (BATCH_SIZE,), device=device)  # случайные шаги t
+
+            xt = self.forward_diffusion(images, t, alphas_bar).to(device)  # добавляем шум
+            predicted_noise = model(xt, text_embs, t, attention_mask)
+
+            loss_train = criterion(predicted_noise, torch.randn_like(xt))  # сравниваем с реальным шумом
+            loss = loss_train
+            loss_train.backward()
+
+            optimizer.step()
+
+            i += 1
+            print(f"Процентов {(i / len(train_loader)) * 100}")
+        return loss
+
+    def validating_model(self, e_model: EncapsulatedModel, e_loader: EncapsulatedDataloaders):
+        print("Валидация")
+        model = e_model.model
+        device = e_model.device
+        criterion = e_model.criterion
+        val_loader = e_loader.val
+
+        model.eval()  # Переключаем в режим валидации
+
+        beta = torch.linspace(0.0001, 0.02, T)  # Линейно возрастающие b_t
+        alpha = 1 - beta  # a_t
+        alphas_bar = torch.cumprod(alpha, dim=0).to(device)  # Накапливаемый коэффициент a_t (T,)
+
+        # Оценка на валидационном датасете
+        loss = None
+        i = 0
+        with torch.no_grad():
+            for images, text_embs, attention_mask in val_loader:
+                images, text_embs, attention_mask = images.to(device), text_embs.to(device), attention_mask.to(device)
+                t = torch.randint(0, T, (BATCH_SIZE,), device=device)  # случайные шаги t
+                xt = self.forward_diffusion(images, t, alphas_bar).to(device)  # добавляем шум
+                predicted_noise = model(xt, text_embs, t, attention_mask)
+                loss_val = criterion(predicted_noise, torch.randn_like(xt))
+                loss = loss_val
+
+                i += 1
+                print(f"Процентов {(i / len(val_loader)) * 100}")
+        return loss
+
+    def test_model(self, e_model: EncapsulatedModel, e_loader: EncapsulatedDataloaders):
+        print("Тестирование")
+        model = e_model.model
+        device = e_model.device
+        criterion = e_model.criterion
+        test_loader = e_loader.test
+
+        model.eval()
+
+        beta = torch.linspace(0.0001, 0.02, T)  # Линейно возрастающие b_t
+        alpha = 1 - beta  # a_t
+        alphas_bar = torch.cumprod(alpha, dim=0).to(device)  # Накапливаемый коэффициент a_t (T,)
+
+        test_loss = 0.0
+        i = 0
+        with torch.no_grad():
+            for images, text_embs, attention_mask in test_loader:
+                images, text_embs, attention_mask = images.to(device), text_embs.to(
+                    device), attention_mask.to(device)
+                t = torch.randint(0, T, (BATCH_SIZE,), device=device)  # случайные шаги t
+                xt = self.forward_diffusion(images, t, alphas_bar).to(device)  # добавляем шум
+                predicted_noise = model(xt, text_embs, t, attention_mask)
+                loss_test = criterion(predicted_noise, torch.randn_like(xt))
+                test_loss += loss_test.item()
+
+                i += 1
+                print(f"Процентов {(i / len(test_loader)) * 100}")
+        # accuracy = 100 * correct / total
+        avg_test_loss = test_loss / len(test_loader)
+        # print(f'Test Accuracy: {accuracy:.2f}%, Test Loss: {avg_test_loss:.4f}')
+        print(f'Test Loss: {avg_test_loss:.4f}')
+
+    def save_my_model_in_middle_train(self, e_model: EncapsulatedModel, model_dir, model_file, epoch, lossitem):
+        # Сохранение
+        model_filepath = model_dir + model_file
+        model = e_model.model
+        optimizer = e_model.optimizer
+        model.cpu()
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss_item': lossitem,
+        }, model_filepath)
+
+    def load_my_model_in_middle_train(self, model_dir, model_file, device):
+        # Загрузка
+        model_filepath = model_dir + model_file
+        checkpoint = torch.load(model_filepath)
+        model = MyUNet(TEXT_EMB_DIM, device).to(device)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer = optim.Adam(model.parameters(), lr=LR)
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        epoch = checkpoint['epoch']
+        lossitem = checkpoint['loss_item']
+        return model, optimizer, epoch, lossitem
+
+    def save_my_model(self, model, model_dir, model_file):
+        # Сохраняем только state_dict модели
+        model_filepath = model_dir + model_file
+        model.cpu()
+        torch.save(model.state_dict(), model_filepath)
+
+    def load_my_model(self, model_dir, model_file, device):
+        # Загружаем модель
+        model_filepath = model_dir + model_file
+        model = MyUNet(TEXT_EMB_DIM, device).to(device)  # Нужно заново создать архитектуру модели
+        model.load_state_dict(torch.load(model_filepath))
+        model.eval()  # Устанавливаем модель в режим оценки (для тестирования)
+        return model
+
+
+def show_image(tensor_img):
+    """ Визуализация тензора изображения """
+    img = tensor_img.cpu().detach().numpy().transpose(1, 2, 0)  # Приводим к (H, W, C)
+    img = (img - img.min()) / (
+            img.max() - img.min())  # Нормализация к [0,1] (matplotlib ждёт данные в формате [0, 1], другие не примет)
+    plt.imshow(img)
+    plt.axis("off")  # Убираем оси
+    plt.show()
+
 # --- Создание модели ---
-def create_model():
-    # import torch
-    print(torch.__version__)
-
-
-    # x = torch.rand(5, 3)
-    # print(x)
-    print(torch.cuda.is_available())
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(device)
-    model = MyUNet(TEXT_EMB_DIM, device).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=LR)
-    criterion = nn.MSELoss()
-    return device, model, optimizer, criterion
+# def create_model():
+#     # import torch
+#     print(torch.__version__)
+#     # x = torch.rand(5, 3)
+#     # print(x)
+#     device = "cuda" if torch.cuda.is_available() else "cpu"
+#     print(device)
+#     model = MyUNet(TEXT_EMB_DIM, device).to(device)
+#     optimizer = optim.Adam(model.parameters(), lr=LR)
+#     criterion = nn.MSELoss()
+#     return device, model, optimizer, criterion
 
 
 # # --- Создание датасета для обучения ---
@@ -266,105 +474,93 @@ def create_model():
 #         print(f"Epoch {epoch + 1}, Loss: {loss.item():.4f}")
 
 
-def апвапвыпа collate_fn(batch):
+# def collate_fn(batch):
+#     if len(batch) % BATCH_SIZE != 0:
+#         additional_batch = random.choices(batch, k=BATCH_SIZE - (len(batch) % BATCH_SIZE))
+#         batch = batch + additional_batch
+#
+#     images, text_embs, masks = zip(*batch)  # Разбираем батч по частям
+#     images = torch.stack(images)  # Объединяем картинки (B, C, H, W)
+#     text_embs = torch.stack(text_embs)  # Объединяем текстовые эмбеддинги (B, max_length, txt_emb_dim)
+#     masks = torch.stack(masks)  # Объединяем маски внимания (B, max_length)
+#     return images, text_embs, masks
 
 
-
-    images, text_embs, masks = zip(*batch)  # Разбираем батч по частям
-    images = torch.stack(images)  # Объединяем картинки (B, C, H, W)
-
-    if images.shape[0] != BATCH_SIZE:
-
-
-        print('kkk')
-
-    text_embs = torch.stack(text_embs)  # Объединяем текстовые эмбеддинги (B, max_length, txt_emb_dim)
-    masks = torch.stack(masks)  # Объединяем маски внимания (B, max_length)
-    return images, text_embs, masks
-
-
-def show_image(tensor_img):
-    """ Визуализация тензора изображения """
-    img = tensor_img.cpu().detach().numpy().transpose(1, 2, 0)  # Приводим к (H, W, C)
-    img = (img - img.min()) / (img.max() - img.min())  # Нормализация к [0,1]
-
-    plt.imshow(img)
-    plt.axis("off")  # Убираем оси
-    plt.show()
+# def show_image(tensor_img):
+#     """ Визуализация тензора изображения """
+#     img = tensor_img.cpu().detach().numpy().transpose(1, 2, 0)  # Приводим к (H, W, C)
+#     img = (img - img.min()) / (img.max() - img.min())  # Нормализация к [0,1]
+#
+#     plt.imshow(img)
+#     plt.axis("off")  # Убираем оси
+#     plt.show()
 
 
 # --- Функция обучения ---
-def train_ddpm(model, device, optimizer, criterion, dataset, epochs):
-    train_size = int(0.7 * len(dataset))
-    val_size = int(0.2 * len(dataset))
-    test_size = len(dataset) - train_size - val_size
-    train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
-
-    # Разделяем датасет
-    # train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
-
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn)
-    # images, text_embs, masks = next(iter(train_loader))
-    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True,
-                            collate_fn=collate_fn)
-    test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True,
-                             collate_fn=collate_fn)  # Тестовый датасет можно не перемешивать
-
-    beta = torch.linspace(0.0001, 0.02, T)  # Линейно возрастающие b_t
-    alpha = 1 - beta  # a_t
-    alphas_bar = torch.cumprod(alpha, dim=0)  # Накапливаемый коэффициент a_t (T,)
-    # model.train()  # Включаем режим обучения
-
-    # i, te, am = next(iter(train_loader))
-    # i = i.to(device)
-    # te = te.to(device)
-    # am = am.to(device)
-    # alphas_bar = alphas_bar.to(device)
-    # optimizer.zero_grad()
-    # t = torch.randint(0, T, (BATCH_SIZE,), device=device)  # случайные шаги t
-    # xt = forward_diffusion(i, t, alphas_bar)  # добавляем шум
-    # # Выбираем первую картинку из батча и отображаем
-    # show_image(xt[0])
-
-    alphas_bar = alphas_bar.to(device)
-    for epoch in range(epochs):
-        model.train()  # Включаем режим обучения
-        i = 0
-
-        for images, text_embs, attention_mask in train_loader:
-            optimizer.zero_grad()
-
-            images, text_embs, attention_mask = images.to(device), text_embs.to(device), attention_mask.to(device)
-            t = torch.randint(0, T, (BATCH_SIZE,), device=device)  # случайные шаги t
-            if images.shape[0] != 8:
-
-
-
-                print('chars')
-                print('chars')
-            print(images.shape[0])
-
-            xt = forward_diffusion(images, t, alphas_bar).to(device)  # добавляем шум
-            predicted_noise = model(xt, text_embs, t, attention_mask)
-
-            loss = criterion(predicted_noise, torch.randn_like(xt))  # сравниваем с реальным шумом
-
-            loss.backward()
-            optimizer.step()
-
-            i+=1
-            print(f"Процентов {(i/len(train_loader)) * 100}")
-        # Выбираем первую картинку из батча и отображаем
-        # show_image(xt[0])
-
-        # Оценка на валидационном датасете
-        model.eval()  # Переключаем в режим валидации
-        with torch.no_grad():
-            for images, text_embs, attention_mask in val_loader:
-                images, text_embs, attention_mask = images.to(device), text_embs.to(device), attention_mask.to(device)
-                t = torch.randint(0, T, (BATCH_SIZE,), device=device)  # случайные шаги t
-                xt = forward_diffusion(images, t, alphas_bar).to(device)  # добавляем шум
-                predicted_noise = model(xt, text_embs, t, attention_mask)
-                val_loss = criterion(predicted_noise, torch.randn_like(xt))
-
-        print(f"Epoch {epoch + 1}, Train Loss: {loss.item()}, Val Loss: {val_loss.item()}")
+# def train_ddpm(model, device, optimizer, criterion, dataset, epochs):
+#     train_size = int(0.7 * len(dataset))
+#     val_size = int(0.2 * len(dataset))
+#     test_size = len(dataset) - train_size - val_size
+#     train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
+#
+#     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn)
+#     # images, text_embs, masks = next(iter(train_loader))
+#     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True,
+#                             collate_fn=collate_fn)
+#     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True,
+#                              collate_fn=collate_fn)  # Тестовый датасет можно не перемешивать
+#
+#     beta = torch.linspace(0.0001, 0.02, T)  # Линейно возрастающие b_t
+#     alpha = 1 - beta  # a_t
+#     alphas_bar = torch.cumprod(alpha, dim=0)  # Накапливаемый коэффициент a_t (T,)
+#     # model.train()  # Включаем режим обучения
+#
+#     # i, te, am = next(iter(train_loader))
+#     # i = i.to(device)
+#     # te = te.to(device)
+#     # am = am.to(device)
+#     # alphas_bar = alphas_bar.to(device)
+#     # optimizer.zero_grad()
+#     # t = torch.randint(0, T, (BATCH_SIZE,), device=device)  # случайные шаги t
+#     # xt = forward_diffusion(i, t, alphas_bar)  # добавляем шум
+#     # # Выбираем первую картинку из батча и отображаем
+#     # show_image(xt[0])
+#
+#     alphas_bar = alphas_bar.to(device)
+#     for epoch in range(epochs):
+#         model.train()  # Включаем режим обучения
+#         i = 0
+#
+#         for images, text_embs, attention_mask in train_loader:
+#             optimizer.zero_grad()
+#
+#             images, text_embs, attention_mask = images.to(device), text_embs.to(device), attention_mask.to(device)
+#             t = torch.randint(0, T, (BATCH_SIZE,), device=device)  # случайные шаги t
+#
+#             xt = forward_diffusion(images, t, alphas_bar).to(device)  # добавляем шум
+#             predicted_noise = model(xt, text_embs, t, attention_mask)
+#
+#             loss = criterion(predicted_noise, torch.randn_like(xt))  # сравниваем с реальным шумом
+#
+#             loss.backward()
+#             optimizer.step()
+#
+#             i += 1
+#             print(f"Процентов {(i / len(train_loader)) * 100}")
+#
+#         # Оценка на валидационном датасете
+#         i = 0
+#         print('hhh')
+#         model.eval()  # Переключаем в режим валидации
+#         with torch.no_grad():
+#             for images, text_embs, attention_mask in val_loader:
+#                 images, text_embs, attention_mask = images.to(device), text_embs.to(device), attention_mask.to(device)
+#                 t = torch.randint(0, T, (BATCH_SIZE,), device=device)  # случайные шаги t
+#                 xt = forward_diffusion(images, t, alphas_bar).to(device)  # добавляем шум
+#                 predicted_noise = model(xt, text_embs, t, attention_mask)
+#                 val_loss = criterion(predicted_noise, torch.randn_like(xt))
+#
+#                 i += 1
+#                 print(f"Процентов {(i / len(val_loader)) * 100}")
+#
+#         print(f"Epoch {epoch + 1}, Train Loss: {loss.item()}, Val Loss: {val_loss.item()}")
