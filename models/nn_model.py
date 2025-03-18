@@ -219,11 +219,21 @@ class MyUNet(nn.Module):
 
 class EncapsulatedModel:
     def __init__(self):
+        # Создание модели с нуля
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         print(self.device)
         self.model = MyUNet(TEXT_EMB_DIM, self.device).to(self.device)
         self.optimizer = optim.Adam(self.model.parameters(), lr=LR)
         self.criterion = nn.MSELoss()
+        self.last_loss_item = -1
+        self.epoch = -1
+
+
+
+
+
+
+
 
 
 class EncapsulatedDataloaders:
@@ -277,10 +287,12 @@ class ModelManager():
         xt = torch.sqrt(at) * x0 + torch.sqrt(1 - at) * noise
         return xt
 
-    def train_model(self, e_model, e_loader, epochs):
+    def train_model(self, e_model: EncapsulatedModel, e_loader, epochs):
         for epoch in range(epochs):
             train_loss = self.training_model(e_model, e_loader)
             val_loss = self.validating_model(e_model, e_loader)
+            e_model.last_loss_item = val_loss.item()
+            e_model.epoch = epoch + 1
             print(f"Epoch {epoch + 1}, Train Loss: {train_loss.item()}, Val Loss: {val_loss.item()}")
 
     def training_model(self, e_model: EncapsulatedModel, e_loader: EncapsulatedDataloaders):
@@ -379,11 +391,13 @@ class ModelManager():
         # print(f'Test Accuracy: {accuracy:.2f}%, Test Loss: {avg_test_loss:.4f}')
         print(f'Test Loss: {avg_test_loss:.4f}')
 
-    def save_my_model_in_middle_train(self, e_model: EncapsulatedModel, model_dir, model_file, epoch, lossitem):
+    def save_my_model_in_middle_train(self, e_model: EncapsulatedModel, model_dir, model_file):
         # Сохранение
         model_filepath = model_dir + model_file
         model = e_model.model
         optimizer = e_model.optimizer
+        epoch = e_model.epoch
+        lossitem = e_model.last_loss_item
         model.cpu()
         torch.save({
             'epoch': epoch,
@@ -396,13 +410,22 @@ class ModelManager():
         # Загрузка
         model_filepath = model_dir + model_file
         checkpoint = torch.load(model_filepath)
+        e_model = EncapsulatedModel()
+
         model = MyUNet(TEXT_EMB_DIM, device).to(device)
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer = optim.Adam(model.parameters(), lr=LR)
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         epoch = checkpoint['epoch']
         lossitem = checkpoint['loss_item']
-        return model, optimizer, epoch, lossitem
+
+        e_model.device = device
+        e_model.model = model
+        e_model.optimizer = optimizer
+        e_model.epoch = epoch
+        e_model.last_loss_item = lossitem
+
+        return e_model
 
     def save_my_model(self, model, model_dir, model_file):
         # Сохраняем только state_dict модели

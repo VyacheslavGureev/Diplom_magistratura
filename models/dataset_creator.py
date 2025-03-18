@@ -10,9 +10,10 @@ from PIL import Image
 from torchvision import transforms
 
 # IMG_SIZE = 256  # Размер изображений
-IMG_SIZE = 4  # Размер изображений
+IMG_SIZE = 128  # Размер изображений
 
-MAX_LEN_TOKENS = 64
+# MAX_LEN_TOKENS = 64
+MAX_LEN_TOKENS = 50
 
 
 class ImageTextDataset(Dataset):
@@ -40,7 +41,10 @@ class ImageTextDataset(Dataset):
         #         tokens = self.tokenizer(c, return_tensors="pt", padding=True, truncation=True)
         #         if self.maxxxx < tokens.data['input_ids'].shape[1]:
         #             self.maxxxx = tokens.data['input_ids'].shape[1]
-        #         print(tokens.data['input_ids'].shape[1])
+        # print(self.maxxxx)
+        # print('maxxx')
+
+
 
     def __len__(self):
         return len(self.image_filenames)
@@ -51,7 +55,7 @@ class ImageTextDataset(Dataset):
         image = Image.open(img_path).convert("RGB")
         image = self.transform(image)  # (C, H, W)
         # Загружаем подпись и получаем текстовый эмбеддинг
-        caption = self.captions[self.image_filenames[idx]][random.randint(0, 4)]  # Берём первую подпись
+        caption = self.captions[self.image_filenames[idx]][random.randint(0, 4)]  # Берём рандомную подпись
         tokens = self.tokenizer(
             caption,
             return_tensors="pt",
