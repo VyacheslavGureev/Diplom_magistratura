@@ -3,14 +3,13 @@ import random
 import torch
 from torch.utils.data import Dataset, DataLoader
 from transformers import CLIPTokenizer, CLIPTextModel, CLIPProcessor
-import json
 import os
 from PIL import Image
 
 from torchvision import transforms
 
 # IMG_SIZE = 256  # Размер изображений
-IMG_SIZE = 128  # Размер изображений
+IMG_SIZE = 192  # Размер изображений
 
 # MAX_LEN_TOKENS = 64
 MAX_LEN_TOKENS = 50
