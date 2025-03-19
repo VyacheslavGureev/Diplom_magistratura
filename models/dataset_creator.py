@@ -2,17 +2,19 @@ import random
 
 import torch
 from torch.utils.data import Dataset, DataLoader
-from transformers import CLIPTokenizer, CLIPTextModel, CLIPProcessor
+from transformers import CLIPTokenizer, CLIPTextModel
 import os
 from PIL import Image
 
 from torchvision import transforms
+import models.hyperparams as hyperparams
+
 
 # IMG_SIZE = 256  # Размер изображений
-IMG_SIZE = 192  # Размер изображений
+# IMG_SIZE = 160  # Размер изображений
 
 # MAX_LEN_TOKENS = 64
-MAX_LEN_TOKENS = 50
+# MAX_LEN_TOKENS = 50
 
 
 class ImageTextDataset(Dataset):
@@ -43,8 +45,6 @@ class ImageTextDataset(Dataset):
         # print(self.maxxxx)
         # print('maxxx')
 
-
-
     def __len__(self):
         return len(self.image_filenames)
 
@@ -68,10 +68,27 @@ class ImageTextDataset(Dataset):
         return image, text_emb, attention_mask
 
 
+def get_text_emb(text):
+    tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
+    text_encoder = CLIPTextModel.from_pretrained("openai/clip-vit-base-patch32")
+
+    tokens = tokenizer(
+        text,
+        return_tensors="pt",
+        padding="max_length",  # Делаем паддинг до max_length
+        truncation=True,  # Обрезаем слишком длинные тексты
+        max_length=hyperparams.MAX_LEN_TOKENS  # Устанавливаем максимальную длину
+    )
+    attention_mask = tokens['attention_mask'].squeeze(0)  # (max_length,)
+    with torch.no_grad():
+        text_emb = text_encoder(**tokens).last_hidden_state.squeeze(0)  # (max_length, txt_emb_dim)
+    return text_emb, attention_mask
+
+
 # --- Создание датасета для обучения ---
 def create_dataset(image_folder, captions_file):
     transform = transforms.Compose([
-        transforms.Resize((IMG_SIZE, IMG_SIZE)),  # Приводим к IMG_SIZExIMG_SIZE
+        transforms.Resize((hyperparams.IMG_SIZE, hyperparams.IMG_SIZE)),  # Приводим к IMG_SIZExIMG_SIZE
         transforms.ToTensor(),  # Переводим в тензор (C, H, W)
         transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # Нормализация
     ])
@@ -87,11 +104,6 @@ def create_dataset(image_folder, captions_file):
         transform=transform,
         tokenizer=tokenizer,
         text_encoder=text_encoder,
-        max_len_tokens=MAX_LEN_TOKENS
+        max_len_tokens=hyperparams.MAX_LEN_TOKENS
     )
     return dataset
-
-    # Пример батча
-    # images, text_embs, masks = next(iter(dataloader))
-    # print('[eq', dataset.maxxxx)
-
