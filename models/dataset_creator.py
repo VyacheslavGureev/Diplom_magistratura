@@ -3,6 +3,7 @@ import random
 import torch
 from torch.utils.data import Dataset, DataLoader
 from transformers import CLIPTokenizer, CLIPTextModel
+from sklearn.decomposition import PCA, TruncatedSVD
 import os
 from PIL import Image
 
@@ -10,11 +11,22 @@ from torchvision import transforms
 import models.hyperparams as hyperparams
 
 
-# IMG_SIZE = 256  # Размер изображений
-# IMG_SIZE = 160  # Размер изображений
+# class TextEmbeddingReducer(torch.nn.Module):
+#     def __init__(self, input_dim, output_dim):
+#         super().__init__()
+#         self.linear = torch.nn.Linear(input_dim, output_dim)
+#         for param in self.linear.parameters():
+#             param.requires_grad = False
+#
+#         self.linear.weight.fill_(0.5)  # Устанавливаем все веса в 0.5
+#         self.linear.bias.fill_(0)
+#
+#     def forward(self, text_emb):
+#         return self.linear(text_emb)
 
-# MAX_LEN_TOKENS = 64
-# MAX_LEN_TOKENS = 50
+# Используем перед UNet
+# text_reducer = TextEmbeddingReducer(512, 256).to(device)
+# text_emb_reduced = text_reducer(text_emb)  # (B, tokens, 256)
 
 
 class ImageTextDataset(Dataset):
@@ -36,6 +48,9 @@ class ImageTextDataset(Dataset):
         self.max_len_tokens = max_len_tokens
         self.image_filenames = list(self.captions.keys())  # Файлы картинок
 
+        # self.text_reducer = TextEmbeddingReducer(512, hyperparams.TEXT_EMB_DIM_REDUCED)
+        # self.text_reducer = TextEmbeddingReducer(512, hyperparams.TEXT_EMB_DIM_REDUCED)
+
         # self.maxxxx = 0
         # for i in self.image_filenames:
         #     for c in self.captions[i]:
@@ -55,6 +70,9 @@ class ImageTextDataset(Dataset):
         image = self.transform(image)  # (C, H, W)
         # Загружаем подпись и получаем текстовый эмбеддинг
         caption = self.captions[self.image_filenames[idx]][random.randint(0, 4)]  # Берём рандомную подпись
+
+        # caption = "A red cat ."
+
         tokens = self.tokenizer(
             caption,
             return_tensors="pt",
@@ -65,13 +83,18 @@ class ImageTextDataset(Dataset):
         attention_mask = tokens['attention_mask'].squeeze(0)  # (max_length,)
         with torch.no_grad():
             text_emb = self.text_encoder(**tokens).last_hidden_state.squeeze(0)  # (max_length, txt_emb_dim)
-        return image, text_emb, attention_mask
+        # text_emb = self.text_reducer(text_emb)
+        # text_emb_reduced = self.text_reducer(text_emb)
+        # text_emb = reduce_embedding_linear(text_emb, hyperparams.TEXT_EMB_DIM_REDUCED)
+        text_emb_reduced = reduce_embedding_pca(text_emb, hyperparams.TEXT_EMB_DIM_REDUCED)
+        return image, text_emb_reduced, attention_mask
 
 
 def get_text_emb(text):
+    # text_reducer = TextEmbeddingReducer(512, hyperparams.TEXT_EMB_DIM_REDUCED)
+
     tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
     text_encoder = CLIPTextModel.from_pretrained("openai/clip-vit-base-patch32")
-
     tokens = tokenizer(
         text,
         return_tensors="pt",
@@ -82,7 +105,12 @@ def get_text_emb(text):
     attention_mask = tokens['attention_mask'].squeeze(0)  # (max_length,)
     with torch.no_grad():
         text_emb = text_encoder(**tokens).last_hidden_state.squeeze(0)  # (max_length, txt_emb_dim)
-    return text_emb, attention_mask
+    # text_emb = self.text_reducer(text_emb)
+    # text_emb = reduce_embedding_svd(text_emb, hyperparams.TEXT_EMB_DIM_REDUCED)
+    # text_emb = reduce_embedding_linear(text_emb, hyperparams.TEXT_EMB_DIM_REDUCED)
+    #     text_emb_reduced = text_reducer(text_emb)
+    text_emb_reduced = reduce_embedding_pca(text_emb, hyperparams.TEXT_EMB_DIM_REDUCED)
+    return text_emb_reduced, attention_mask
 
 
 # --- Создание датасета для обучения ---
@@ -107,3 +135,62 @@ def create_dataset(image_folder, captions_file):
         max_len_tokens=hyperparams.MAX_LEN_TOKENS
     )
     return dataset
+
+
+# def reduce_embedding_linear(text_emb, reduced_dim):
+#     text_reducer = TextEmbeddingReducer(512, reduced_dim)
+#     text_emb_reduced = text_reducer(text_emb)  # (B, tokens, 256)
+#     return text_emb_reduced
+
+
+# def reduce_embedding_svd(text_emb, reduced_dim):
+#     svd = TruncatedSVD(n_components=reduced_dim)
+#
+#     # Применяем SVD к данным
+#     X_reduced = svd.fit_transform(text_emb)
+
+
+# """
+# Уменьшает размерность текстового эмбеддинга с помощью SVD.
+#
+# Параметры:
+# - text_emb: torch.Tensor, размерность (tokens, original_dim)
+# - reduced_dim: int, желаемая размерность (reduced_dim)
+#
+# Возвращает:
+# - reduced_emb: torch.Tensor, размерность (tokens, reduced_dim)
+# """
+# # SVD-разложение
+# U, S, Vt = torch.linalg.svd(text_emb, full_matrices=False)
+#
+# # Оставляем только первые reduced_dim компонент
+# reduced_emb = U[:, :reduced_dim] @ torch.diag(S[:reduced_dim])
+
+# return X_reduced
+
+
+# def reduce_embedding_svd(text_emb, reduced_dim):
+#     tokens, original_dim = text_emb.shape  # (tokens, original_dim)
+#     # SVD-разложение
+#     U, S, Vt = torch.linalg.svd(text_emb, full_matrices=False)
+#     # Оставляем только первые reduced_dim компонент
+#     reduced_emb = U[:, :reduced_dim] @ torch.diag(S[:reduced_dim]) @ Vt[:reduced_dim, :]
+#     return reduced_emb
+
+
+# def reduce_embedding_svd(text_emb, reduced_dim):
+#     tokens, original_dim = text_emb.shape  # (tokens, original_dim)
+#     # SVD-разложение
+#     U, S, Vt = torch.linalg.svd(text_emb, full_matrices=False)
+#     # Оставляем только первые reduced_dim компонент
+#     reduced_emb = U[:, :reduced_dim] @ torch.diag(S[:reduced_dim])
+#     return reduced_emb
+
+
+def reduce_embedding_pca(text_emb, reduced_dim):
+    tokens, original_dim = text_emb.shape
+    pca = PCA(n_components=reduced_dim)
+    text_emb_reshaped = text_emb.view(-1, original_dim).cpu().numpy()
+    reduced_emb = pca.fit_transform(text_emb_reshaped)
+    new_tensor = torch.tensor(reduced_emb, dtype=text_emb.dtype, device=text_emb.device).view(tokens, reduced_dim)
+    return new_tensor

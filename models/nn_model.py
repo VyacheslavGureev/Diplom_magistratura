@@ -5,19 +5,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import random_split, DataLoader
 import matplotlib.pyplot as plt
-import random
-from tqdm import tqdm
-
-import models.hyperparams as hyperparams
-import models.dataset_creator as dc
-
-
-# # --- Гиперпараметры ---
-# # IMG_SIZE = 32  # Размер изображений
-# T = 1000  # Количество шагов в диффузии
-# BATCH_SIZE = 8
-# LR = 1e-4
-# TEXT_EMB_DIM = 512
+# import models.hyperparams as hyperparams
 
 
 class SinusoidalTimeEmbedding(nn.Module):
@@ -146,12 +134,13 @@ class DeepBottleneck(nn.Module):
 
 
 class MyUNet(nn.Module):
-    def __init__(self, TXT_EMB_DIM, device):
+    def __init__(self, txt_emb_dim, device):
         super().__init__()
 
         self.time_embedding = SinusoidalTimeEmbedding(
             256, device)  # (это число (256) должно соотвествовать 3-ему инициализированному числу в UNetBlock)
         # это число означает размерность эмбеддинга одного числа t
+
         # --- Downsampling (Сжатие) ---
         self.unet_enc_1 = UNetEncBlock(3, 64, 256)
         self.unet_enc_2 = UNetEncBlock(64, 128, 256)
@@ -160,16 +149,16 @@ class MyUNet(nn.Module):
         self.relu = nn.ReLU()
 
         # --- Bottleneck (Самая узкая часть) ---
-        self.deep_bottleneck = DeepBottleneck(TXT_EMB_DIM)
+        self.deep_bottleneck = DeepBottleneck(txt_emb_dim)
 
         # --- Upsampling (Расширение) ---
         self.up1 = UNetDecBlock(256, 128, 256)
-        self.cross_attn_upsamling_1 = CrossAttentionMultiHead(TXT_EMB_DIM, 128)
+        self.cross_attn_upsamling_1 = CrossAttentionMultiHead(txt_emb_dim, 128)
         self.dec1 = nn.Conv2d(128 + 128, 64, kernel_size=3, padding=1)  # Skip connection
         self.bn_dec_1 = nn.BatchNorm2d(64)
 
         self.up2 = UNetDecBlock(64, 64, 256)
-        self.cross_attn_upsamling_2 = CrossAttentionMultiHead(TXT_EMB_DIM, 64)
+        self.cross_attn_upsamling_2 = CrossAttentionMultiHead(txt_emb_dim, 64)
         self.dec2 = nn.Conv2d(64 + 64, 3, kernel_size=3, padding=1)  # Skip connection
         self.bn_dec_2 = nn.BatchNorm2d(3)
 
@@ -199,373 +188,6 @@ class MyUNet(nn.Module):
         x_concat2 = torch.cat([x_up2_attn, x1], dim=1)  # (B, 64+64, H, W)
         x_dec2 = self.relu(self.bn_dec_2(self.dec2(x_concat2)))  # (B, 3, H, W)
         return x_dec2
-
-
-class EncapsulatedModel:
-    def __init__(self):
-        # Создание модели с нуля
-        # self.device = torch.device("cpu")
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        # self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(self.device)
-        self.model = MyUNet(hyperparams.TEXT_EMB_DIM, self.device).to(self.device)
-        self.optimizer = optim.Adam(self.model.parameters(), lr=hyperparams.LR)
-        self.criterion = nn.MSELoss()
-        # self.last_loss_item = -1
-        # self.epoch = -1
-        self.history = {0: {'train_loss': math.inf, 'val_loss': math.inf}}
-        # self.history[0]['train_loss'] = None
-        # self.history[0]['val_loss'] = None
-
-
-class EncapsulatedDataloaders:
-    def __init__(self, train, val, test):
-        self.train = train
-        self.val = val
-        self.test = test
-
-
-class ModelManager():
-
-    def __init__(self):
-        pass
-
-    # --- Создание модели ---
-    def create_model(self):
-        return EncapsulatedModel()
-
-    def create_dataloaders(self, dataset, train_size_percent, val_size_percent):
-        # Разделяем датасеты
-        train_size = int(train_size_percent * len(dataset))
-        val_size = int(val_size_percent * len(dataset))
-        test_size = len(dataset) - train_size - val_size
-        train_dataset, val_dataset, test_dataset = random_split(dataset,
-                                                                [train_size, val_size, test_size])
-        train_loader = DataLoader(train_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=True,
-                                  collate_fn=self.collate_fn)
-        val_loader = DataLoader(val_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=False,
-                                collate_fn=self.collate_fn)
-        test_loader = DataLoader(test_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=False,
-                                 collate_fn=self.collate_fn)  # Тестовый датасет можно не перемешивать
-        e_loader = EncapsulatedDataloaders(train_loader, val_loader, test_loader)
-        return e_loader
-
-    def collate_fn(self, batch):
-        if len(batch) % hyperparams.BATCH_SIZE != 0:
-            additional_batch = random.choices(batch, k=hyperparams.BATCH_SIZE - (len(batch) % hyperparams.BATCH_SIZE))
-            batch = batch + additional_batch
-        images, text_embs, masks = zip(*batch)  # Разбираем батч по частям
-        images = torch.stack(images)  # Объединяем картинки (B, C, H, W)
-        text_embs = torch.stack(text_embs)  # Объединяем текстовые эмбеддинги (B, max_length, txt_emb_dim)
-        masks = torch.stack(masks)  # Объединяем маски внимания (B, max_length)
-        return images, text_embs, masks
-
-    # --- Определение форвардного процесса (зашумление) ---
-    def forward_diffusion(self, x0, t, alphas_bar, noise=None):
-        """ Добавляет стандартный гауссовский шум к изображению """
-        if noise is None:
-            noise = torch.randn_like(x0)
-        at = alphas_bar[t][:, None, None, None]
-        xt = torch.sqrt(at) * x0 + torch.sqrt(1 - at) * noise
-        return xt
-
-    def train_model(self, e_model: EncapsulatedModel, e_loader, epochs):
-        for epoch in range(epochs):
-            train_loss = self.training_model(e_model, e_loader)
-            val_loss = self.validating_model(e_model, e_loader)
-
-            hist = e_model.history
-            last_epoch = max(hist.keys())
-            last_epoch += 1
-
-            # hist = {0: {'train_loss': None, 'val_loss': None}}
-            hist[last_epoch] = {}
-            hist[last_epoch]['train_loss'] = train_loss.item()
-            hist[last_epoch]['val_loss'] = val_loss.item()
-            e_model.history = hist
-
-            # e_model.history[max(e_model.history, key=(e_model.history) + 1][]last_loss_item = val_loss.item()
-            # e_model.epoch = e_model.epoch + 1
-            print(f"Epoch {epoch + 1}, Train Loss: {train_loss.item()}, Val Loss: {val_loss.item()}")
-
-    def training_model(self, e_model: EncapsulatedModel, e_loader: EncapsulatedDataloaders):
-        print("Тренировка")
-        model = e_model.model
-        device = e_model.device
-        optimizer = e_model.optimizer
-        criterion = e_model.criterion
-        train_loader = e_loader.train
-
-        model.train()  # Включаем режим обучения
-
-        beta = torch.linspace(0.0001, 0.02, hyperparams.T)  # Линейно возрастающие b_t
-        alpha = 1 - beta  # a_t
-        alphas_bar = torch.cumprod(alpha, dim=0).to(device)  # Накапливаемый коэффициент a_t (T,)
-
-        loss = None
-        i = 0
-        for images, text_embs, attention_mask in train_loader:
-            # if i == 5:
-            #     break
-
-            optimizer.zero_grad()
-
-            images, text_embs, attention_mask = images.to(device), text_embs.to(device), attention_mask.to(device)
-            t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
-
-            xt = self.forward_diffusion(images, t, alphas_bar).to(device)  # добавляем шум
-            predicted_noise = model(xt, text_embs, t, attention_mask)
-
-            loss_train = criterion(predicted_noise, torch.randn_like(xt))  # сравниваем с реальным шумом
-            loss = loss_train
-            loss_train.backward()
-
-            optimizer.step()
-
-            i += 1
-            print(f"Процентов {(i / len(train_loader)) * 100}")
-        return loss
-
-    def validating_model(self, e_model: EncapsulatedModel, e_loader: EncapsulatedDataloaders):
-        print("Валидация")
-        model = e_model.model
-        device = e_model.device
-        criterion = e_model.criterion
-        val_loader = e_loader.val
-
-        model.eval()  # Переключаем в режим валидации
-
-        beta = torch.linspace(0.0001, 0.02, hyperparams.T)  # Линейно возрастающие b_t
-        alpha = 1 - beta  # a_t
-        alphas_bar = torch.cumprod(alpha, dim=0).to(device)  # Накапливаемый коэффициент a_t (T,)
-
-        # Оценка на валидационном датасете
-        loss = None
-        i = 0
-        with torch.no_grad():
-            for images, text_embs, attention_mask in val_loader:
-                # if i == 5:
-                #     break
-
-                images, text_embs, attention_mask = images.to(device), text_embs.to(device), attention_mask.to(device)
-                t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
-                xt = self.forward_diffusion(images, t, alphas_bar).to(device)  # добавляем шум
-                predicted_noise = model(xt, text_embs, t, attention_mask)
-                loss_val = criterion(predicted_noise, torch.randn_like(xt))
-                loss = loss_val
-
-                i += 1
-                print(f"Процентов {(i / len(val_loader)) * 100}")
-        return loss
-
-    def test_model(self, e_model: EncapsulatedModel, e_loader: EncapsulatedDataloaders):
-        print("Тестирование")
-        model = e_model.model
-        device = e_model.device
-        criterion = e_model.criterion
-        test_loader = e_loader.test
-
-        model.eval()
-
-        beta = torch.linspace(0.0001, 0.02, hyperparams.T)  # Линейно возрастающие b_t
-        alpha = 1 - beta  # a_t
-        alphas_bar = torch.cumprod(alpha, dim=0).to(device)  # Накапливаемый коэффициент a_t (T,)
-
-        test_loss = 0.0
-        i = 0
-        with torch.no_grad():
-            for images, text_embs, attention_mask in test_loader:
-                images, text_embs, attention_mask = images.to(device), text_embs.to(
-                    device), attention_mask.to(device)
-                t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
-                xt = self.forward_diffusion(images, t, alphas_bar).to(device)  # добавляем шум
-                predicted_noise = model(xt, text_embs, t, attention_mask)
-                loss_test = criterion(predicted_noise, torch.randn_like(xt))
-                test_loss += loss_test.item()
-
-                i += 1
-                print(f"Процентов {(i / len(test_loader)) * 100}, test loss: {loss_test.item()}")
-        # accuracy = 100 * correct / total
-        avg_test_loss = test_loss / len(test_loader)
-        # print(f'Test Accuracy: {accuracy:.2f}%, Test Loss: {avg_test_loss:.4f}')
-        print(f'Test Loss: {avg_test_loss:.4f}')
-
-    def save_my_model_in_middle_train(self, e_model: EncapsulatedModel, model_dir, model_file):
-        # Сохранение
-        model_filepath = model_dir + model_file
-        model = e_model.model
-        optimizer = e_model.optimizer
-        # epoch = e_model.epoch
-        # lossitem = e_model.last_loss_item
-        history = e_model.history
-        model.cpu()
-        torch.save({
-            'history': history,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-        }, model_filepath)
-
-        # torch.save({
-        #     'epoch': epoch,
-        #     'model_state_dict': model.state_dict(),
-        #     'optimizer_state_dict': optimizer.state_dict(),
-        #     'loss_item': lossitem,
-        # }, model_filepath)
-
-    def load_my_model_in_middle_train(self, model_dir, model_file, device):
-        # Загрузка
-        model_filepath = model_dir + model_file
-        checkpoint = torch.load(model_filepath)
-        e_model = EncapsulatedModel()
-
-        model = MyUNet(hyperparams.TEXT_EMB_DIM, device).to(device)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer = optim.Adam(model.parameters(), lr=hyperparams.LR)
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        history = checkpoint.get('history', {0: {'train_loss': math.inf,
-                                                 'val_loss': math.inf}})  # Если модель была обучена, но во время её обучения ещё не был реализован функционал сохранения истории обучения
-        # epoch = checkpoint['epoch']
-        # lossitem = checkpoint['loss_item']
-
-        e_model.device = device
-        e_model.model = model
-        e_model.optimizer = optimizer
-        e_model.history = history
-
-        # e_model.epoch = epoch
-        # e_model.last_loss_item = lossitem
-
-        return e_model
-
-    def save_my_model(self, model, model_dir, model_file):
-        # Сохраняем только state_dict модели
-        model_filepath = model_dir + model_file
-        model.cpu()
-        torch.save(model.state_dict(), model_filepath)
-
-    def load_my_model(self, model_dir, model_file, device):
-        # Загружаем модель
-        model_filepath = model_dir + model_file
-        model = MyUNet(hyperparams.TEXT_EMB_DIM, device).to(device)  # Нужно заново создать архитектуру модели
-        model.load_state_dict(torch.load(model_filepath))
-        model.eval()  # Устанавливаем модель в режим оценки (для тестирования)
-        return model
-
-    # Функция для reverse diffusion
-    def reverse_diffusion(self, model, text_embedding, attn_mask, device):
-        # Инициализация случайного шума (начало процесса)
-        x_t = torch.randn(hyperparams.BATCH_SIZE, 3, hyperparams.IMG_SIZE, hyperparams.IMG_SIZE).to(device) # (B, C, H, W)
-        # t = torch.linspace(0, hyperparams.T - 1, hyperparams.T).to(device) # (T, )
-
-        beta = (torch.linspace(0.0001, 0.02, hyperparams.T)).to(device)  # Линейно возрастающие b_t
-        alpha = 1 - beta  # a_t
-        alpha = alpha.to(device)
-        # alphas_bar = torch.cumprod(alpha, dim=0).to(device)  # Накапливаемый коэффициент a_t (T,)
-        t_tensor = torch.arange(0, hyperparams.T, 1, dtype=torch.int)
-        t_tensor = t_tensor.unsqueeze(1)
-        t_tensor = t_tensor.expand(hyperparams.T, hyperparams.BATCH_SIZE)
-        t_tensor = t_tensor.to(device)
-        # t_tensor = torch.full((hyperparams.BATCH_SIZE,), step).to(device)  # (B, )
-        # Запускаем процесс reverse diffusion
-
-        model.eval()
-        with torch.no_grad():
-
-
-            for step in tqdm(range(hyperparams.T - 1, -1, -1), colour='white'):
-                # t_tensor = torch.full((hyperparams.BATCH_SIZE,), step).to(device) # (B, )
-                # Получаем предсказание шума на текущем шаге
-                predicted_noise = model(x_t, text_embedding, t_tensor[step], attn_mask)
-
-                # Обновляем изображение, используя predicted_noise и шаг диффузии
-                # beta = torch.linspace(0.0001, 0.02, hyperparams.T)  # Линейно возрастающие b_t
-                # alpha = 1 - beta  # a_t
-                # alphas_bar = torch.cumprod(alpha, dim=0).to(device)  # Накапливаемый коэффициент a_t (T,)
-
-
-
-                # alpha_t = get_alpha_t(step)  # Получить коэффициент для текущего шага (или из таблицы)
-                # beta_t = get_beta_t(step)  # Получить шумовой коэффициент
-
-                # Reverse update (шаг обратной диффузии)
-                # x_t = (x_t - beta_t * predicted_noise) / alpha_t.sqrt()
-
-
-                x_t = (1/alpha[step]) * (x_t - (torch.sqrt(beta[step]) * predicted_noise))
-
-                # Можно добавить дополнительные шаги, такие как коррекция или уменьшение шума
-                # Например, можно добавить немного шума обратно с каждым шагом:
-                # if step > 0:
-                #     noise = torch.randn_like(x_t).to(device) * (1 - alpha_t).sqrt()
-                #     x_t += noise
-
-        # Вернем восстановленное изображение
-        return x_t
-
-    def get_img_from_text(self, e_model: EncapsulatedModel, text, device):
-        text_embs, masks = dc.get_text_emb(text)
-        model = e_model.model
-
-        # Повторяем тензоры, чтобы размерность по батчам совпадала
-        text_emb_batch = text_embs.unsqueeze(0).expand(hyperparams.BATCH_SIZE, -1, -1)  # (B, tokens, text_emb_dim)
-        mask_batch = masks.unsqueeze(0).expand(hyperparams.BATCH_SIZE, -1)  # (B, tokens)
-
-        mask_batch = mask_batch.to(device)
-        text_emb_batch = text_emb_batch.to(device)
-        img = self.reverse_diffusion(model, text_emb_batch, mask_batch, device)
-        return img
-        # Визуализация изображения
-        # show_image(img[0])
-
-        # plt.imshow(img)
-        # plt.axis('off')
-        # plt.show()
-
-
-
-        # # Пример функции для получения alpha_t и beta_t на основе предварительно рассчитанных значений
-        # def get_alpha_t(step):
-        #     # Это может быть что-то как простая функция зависимости alpha от шага t
-        #     alpha = 1 - (step / T)
-        #     return alpha
-        #
-        # def get_beta_t(step):
-        #     # Тоже может быть функция для получения шума
-        #     beta = (step / T) * 0.02  # Для примера
-        #     return beta
-        #
-        # # Пример генерации изображения на основе текста
-        # def generate_image_from_text(model, text, device=device):
-        #     # Получаем текстовый эмбеддинг
-        #     text_embedding = get_text_embedding(text).to(device)  # Здесь используется CLIP или другая модель
-        #
-        #     # Выполняем reverse diffusion для восстановления изображения
-        #     generated_image = reverse_diffusion(model, text_embedding, device=device)
-        #
-        #     # Преобразуем изображение в нужный формат для визуализации
-        #     generated_image = generated_image.squeeze().cpu().detach().numpy().transpose(1, 2, 0)
-        #     return generated_image
-        #
-        # def get_text_embedding(text):
-        #     # Используем, например, CLIP для получения эмбеддинга текста
-        #     # Важно, чтобы текст был правильно токенизирован и преобразован в эмбеддинг
-        #     return clip_model.encode_text(clip.tokenize([text]).to(device))
-        #
-        # # Загружаем модель диффузии (например, UNet)
-        # model = UNet(TEXT_EMB_DIM).to(device)
-        #
-        # # Генерация изображения по тексту
-        # text_description = "a futuristic cityscape"
-        # generated_image = generate_image_from_text(model, text_description)
-        #
-        # # Визуализация изображения
-        # import matplotlib.pyplot as plt
-        #
-        # plt.imshow(generated_image)
-        # plt.axis('off')
-        # plt.show()
-
-
 
 
 def show_image(tensor_img):

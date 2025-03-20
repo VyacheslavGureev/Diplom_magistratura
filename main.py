@@ -4,10 +4,12 @@ from PyQt5 import QtWidgets
 
 from services.navigation_service import CommonObject
 
+import pickle
+import torch
 import models.nn_model as neural
 import models.dataset_creator as dc
-import torch
 import models.hyperparams as hyperparams
+import models.manager as manager
 
 
 def main():
@@ -19,14 +21,14 @@ def main():
     # sys.exit(app.exec_())
 
 
-def n_func():
+def neural_func():
     # mode = 'img'  #
     mode = 'create_train_save'  #
     # mode = 'load_train_test_save'  #
     # mode = 'load_test'  #
     # mode = 'load_gen'  #
 
-    model_manager = neural.ModelManager()
+    model_manager = manager.ModelManager()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if mode == 'load_gen':
         em = model_manager.load_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR, hyperparams.CURRENT_MODEL_NAME,
@@ -36,8 +38,34 @@ def n_func():
         i = model_manager.get_img_from_text(em, text, device)
         neural.show_image(i[1])
     else:
-        dataset = dc.create_dataset("datas/Flickr8k/Images/", "datas/Flickr8k/captions/captions.txt")
-        ed = model_manager.create_dataloaders(dataset, 0.7, 0.2)
+        # dataset = dc.create_dataset("datas/Flickr8k/Images/", "datas/Flickr8k/captions/captions.txt")
+        # ed = model_manager.create_dataloaders(dataset, 0.7, 0.2)
+        # Сохраняем объект в файл
+        # with open("trained/e_loader.pkl", "wb") as f:
+        #     pickle.dump(ed, f)
+
+        # Загружаем объект из файла
+        with open("trained/e_loader.pkl", "rb") as f:
+            ed = pickle.load(f)
+
+
+
+        # print((next(iter(ed.train)))[0])
+        # print((next(iter(ed.train)))[0])
+        # print((next(iter(ed.train)))[0])
+        # print("val", (next(iter(ed.val)))[0])
+        # print("val", (next(iter(ed.val)))[0])
+        # print("val", (next(iter(ed.val)))[0])
+        #
+        # print("test", (next(iter(ed.test)))[0])
+        # print("test", (next(iter(ed.test)))[0])
+        # print("test", (next(iter(ed.test)))[0])
+
+
+        # print("hhhh")
+
+
+
         if mode == 'load_test':
             em = model_manager.load_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR,
                                                              hyperparams.CURRENT_MODEL_NAME, device)
@@ -64,15 +92,17 @@ def n_func():
                                                         hyperparams.CURRENT_MODEL_NAME)
             print('Продолжение тренировки завершено!')
 
-    # _________
-    # device = "cuda" if torch.cuda.is_available() else "cpu"
-    # m = model_manager.load_my_model("trained/", "first.pth", device)
-    # model_manager.save_my_model(em.model, "trained/", "128p.pth")
-
 
 if __name__ == '__main__':
     print('abc')
 
     # main()
 
-    n_func()
+    neural_func()
+
+# Функция для получения порядка данных
+def get_data_order(loader):
+    order = []
+    for batch in loader:
+        order.extend(batch[1].tolist())  # Сохраняем метки
+    return order
