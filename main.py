@@ -22,8 +22,26 @@ def main():
 
 
 def neural_func():
+
+    # min_size = 20
+    # print(min_size)
+    # for i in range(3):
+    #     min_size_p4 = min_size + 4
+    #     print(min_size_p4)
+    #     min_size_x2 = min_size_p4 * 2
+    #     print(min_size_x2)
+    #     min_size = min_size_x2
+    # print(min_size + 4)
+
+
+
+
+
+
+
     # mode = 'img'  #
-    mode = 'create_train_save'  #
+    # mode = 'create_train_save'  #
+    mode = 'create_train_test_save'  #
     # mode = 'load_train_test_save'  #
     # mode = 'load_test'  #
     # mode = 'load_gen'  #
@@ -43,28 +61,9 @@ def neural_func():
         # Сохраняем объект в файл
         # with open("trained/e_loader.pkl", "wb") as f:
         #     pickle.dump(ed, f)
-
         # Загружаем объект из файла
         with open("trained/e_loader.pkl", "rb") as f:
             ed = pickle.load(f)
-
-
-
-        # print((next(iter(ed.train)))[0])
-        # print((next(iter(ed.train)))[0])
-        # print((next(iter(ed.train)))[0])
-        # print("val", (next(iter(ed.val)))[0])
-        # print("val", (next(iter(ed.val)))[0])
-        # print("val", (next(iter(ed.val)))[0])
-        #
-        # print("test", (next(iter(ed.test)))[0])
-        # print("test", (next(iter(ed.test)))[0])
-        # print("test", (next(iter(ed.test)))[0])
-
-
-        # print("hhhh")
-
-
 
         if mode == 'load_test':
             em = model_manager.load_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR,
@@ -81,6 +80,14 @@ def neural_func():
             model_manager.save_my_model_in_middle_train(em, hyperparams.CURRENT_MODEL_DIR,
                                                         hyperparams.CURRENT_MODEL_NAME)
             print('Готово!')
+        elif mode == 'create_train_test_save':
+            em = model_manager.create_model()
+            model_manager.train_model(em, ed, hyperparams.EPOCHS)
+            model_manager.test_model(em, ed)
+            print('Тестирование завершено!')
+            model_manager.save_my_model_in_middle_train(em, hyperparams.CURRENT_MODEL_DIR,
+                                                        hyperparams.CURRENT_MODEL_NAME)
+            print('Готово! create_train_test_save')
         elif mode == 'load_train_test_save':
             em = model_manager.load_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR,
                                                              hyperparams.CURRENT_MODEL_NAME, device)

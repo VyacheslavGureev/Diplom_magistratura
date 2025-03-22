@@ -64,6 +64,7 @@ class ImageTextDataset(Dataset):
         return len(self.image_filenames)
 
     def __getitem__(self, idx):
+        # print(idx)
         # Загружаем картинку
         img_path = os.path.join(self.image_folder, self.image_filenames[idx])
         image = Image.open(img_path).convert("RGB")
@@ -82,11 +83,12 @@ class ImageTextDataset(Dataset):
         )
         attention_mask = tokens['attention_mask'].squeeze(0)  # (max_length,)
         with torch.no_grad():
-            text_emb = self.text_encoder(**tokens).last_hidden_state.squeeze(0)  # (max_length, txt_emb_dim)
+            text_emb_reduced = self.text_encoder(**tokens).last_hidden_state.squeeze(0)  # (max_length, txt_emb_dim)
         # text_emb = self.text_reducer(text_emb)
         # text_emb_reduced = self.text_reducer(text_emb)
         # text_emb = reduce_embedding_linear(text_emb, hyperparams.TEXT_EMB_DIM_REDUCED)
-        text_emb_reduced = reduce_embedding_pca(text_emb, hyperparams.TEXT_EMB_DIM_REDUCED)
+        # text_emb_reduced = reduce_embedding_svd(text_emb_reduced, hyperparams.TEXT_EMB_DIM_REDUCED)
+        # text_emb_reduced = reduce_embedding_pca(text_emb_reduced, hyperparams.TEXT_EMB_DIM_REDUCED)
         return image, text_emb_reduced, attention_mask
 
 
@@ -104,12 +106,12 @@ def get_text_emb(text):
     )
     attention_mask = tokens['attention_mask'].squeeze(0)  # (max_length,)
     with torch.no_grad():
-        text_emb = text_encoder(**tokens).last_hidden_state.squeeze(0)  # (max_length, txt_emb_dim)
+        text_emb_reduced = text_encoder(**tokens).last_hidden_state.squeeze(0)  # (max_length, txt_emb_dim)
     # text_emb = self.text_reducer(text_emb)
-    # text_emb = reduce_embedding_svd(text_emb, hyperparams.TEXT_EMB_DIM_REDUCED)
     # text_emb = reduce_embedding_linear(text_emb, hyperparams.TEXT_EMB_DIM_REDUCED)
     #     text_emb_reduced = text_reducer(text_emb)
-    text_emb_reduced = reduce_embedding_pca(text_emb, hyperparams.TEXT_EMB_DIM_REDUCED)
+    # text_emb_reduced = reduce_embedding_svd(text_emb_reduced, hyperparams.TEXT_EMB_DIM_REDUCED)
+    # text_emb_reduced = reduce_embedding_pca(text_emb_reduced, hyperparams.TEXT_EMB_DIM_REDUCED)
     return text_emb_reduced, attention_mask
 
 
@@ -143,48 +145,24 @@ def create_dataset(image_folder, captions_file):
 #     return text_emb_reduced
 
 
-# def reduce_embedding_svd(text_emb, reduced_dim):
-#     svd = TruncatedSVD(n_components=reduced_dim)
-#
-#     # Применяем SVD к данным
-#     X_reduced = svd.fit_transform(text_emb)
+def reduce_embedding_svd(text_emb, reduced_dim):
+    """
+    Уменьшает размерность текстового эмбеддинга с помощью SVD.
 
+    Параметры:
+    - text_emb: torch.Tensor, размерность (tokens, original_dim)
+    - reduced_dim: int, желаемая размерность (reduced_dim)
 
-# """
-# Уменьшает размерность текстового эмбеддинга с помощью SVD.
-#
-# Параметры:
-# - text_emb: torch.Tensor, размерность (tokens, original_dim)
-# - reduced_dim: int, желаемая размерность (reduced_dim)
-#
-# Возвращает:
-# - reduced_emb: torch.Tensor, размерность (tokens, reduced_dim)
-# """
-# # SVD-разложение
-# U, S, Vt = torch.linalg.svd(text_emb, full_matrices=False)
-#
-# # Оставляем только первые reduced_dim компонент
-# reduced_emb = U[:, :reduced_dim] @ torch.diag(S[:reduced_dim])
+    Возвращает:
+    - reduced_emb: torch.Tensor, размерность (tokens, reduced_dim)
+    """
+    # SVD-разложение
+    U, S, Vt = torch.linalg.svd(text_emb, full_matrices=False)
 
-# return X_reduced
+    # Оставляем только первые reduced_dim компонент
+    reduced_emb = U[:, :reduced_dim] @ torch.diag(S[:reduced_dim])
 
-
-# def reduce_embedding_svd(text_emb, reduced_dim):
-#     tokens, original_dim = text_emb.shape  # (tokens, original_dim)
-#     # SVD-разложение
-#     U, S, Vt = torch.linalg.svd(text_emb, full_matrices=False)
-#     # Оставляем только первые reduced_dim компонент
-#     reduced_emb = U[:, :reduced_dim] @ torch.diag(S[:reduced_dim]) @ Vt[:reduced_dim, :]
-#     return reduced_emb
-
-
-# def reduce_embedding_svd(text_emb, reduced_dim):
-#     tokens, original_dim = text_emb.shape  # (tokens, original_dim)
-#     # SVD-разложение
-#     U, S, Vt = torch.linalg.svd(text_emb, full_matrices=False)
-#     # Оставляем только первые reduced_dim компонент
-#     reduced_emb = U[:, :reduced_dim] @ torch.diag(S[:reduced_dim])
-#     return reduced_emb
+    return reduced_emb
 
 
 def reduce_embedding_pca(text_emb, reduced_dim):

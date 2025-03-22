@@ -1,4 +1,5 @@
 import math
+import time
 
 import torch
 import torch.nn as nn
@@ -58,24 +59,22 @@ class ModelManager():
         xt = torch.sqrt(at) * x0 + torch.sqrt(1 - at) * noise
         return xt
 
-    # Функция для получения порядка данных
-    def get_data_order(self, loader):
-        order = []
-        for batch in loader:
-            order.extend(batch[1].tolist())  # Сохраняем метки
-        return order
+    def get_time_emd(self, t, embed_dim, device):
+        """t — это тензор со значениями [0, T], размерность (B,)"""
+        half_dim = embed_dim // 2
+        # freqs = torch.exp(-torch.arange(half_dim, dtype=torch.float32) * (torch.log(torch.tensor(10000.0)) / half_dim))
+        freqs = torch.exp(
+            -torch.arange(half_dim, dtype=torch.float32) * (torch.log(torch.tensor(10000.0)) / half_dim)).to(
+            device)
+        angles = t[:, None] * freqs[None, :]
+        time_embedding = torch.cat([torch.sin(angles), torch.cos(angles)], dim=-1)
+        return time_embedding  # (B, embed_dim)
+
 
 
     def train_model(self, e_model: encapsulated_data.EncapsulatedModel, e_loader, epochs):
         for epoch in range(epochs):
-
-            order = self.get_data_order(e_loader.train)
-            print("Порядок данных:", order)
-
             train_loss = self.training_model(e_model, e_loader)
-            order = self.get_data_order(e_loader.val)
-            print("Порядок данных:", order)
-
             val_loss = self.validating_model(e_model, e_loader)
 
             hist = e_model.history
@@ -106,9 +105,14 @@ class ModelManager():
 
         loss = None
         i = 0
+        start_time_ep = time.time()
         for images, text_embs, attention_mask in train_loader:
-            if i == 2:
-                break
+            start_time = time.time()
+
+            if hyperparams.OGRANICHITEL:
+                if i == hyperparams.N_OGRANICHITEL:
+                    print('Трен. заверш.')
+                    break
 
             optimizer.zero_grad()
 
@@ -116,7 +120,8 @@ class ModelManager():
             t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
 
             xt = self.forward_diffusion(images, t, alphas_bar).to(device)  # добавляем шум
-            predicted_noise = model(xt, text_embs, t, attention_mask)
+            time_emb = self.get_time_emd(t, hyperparams.TIME_EMB_DIM, device)
+            predicted_noise = model(xt, text_embs, time_emb, attention_mask)
 
             loss_train = criterion(predicted_noise, torch.randn_like(xt))  # сравниваем с реальным шумом
             loss = loss_train
@@ -125,7 +130,12 @@ class ModelManager():
             optimizer.step()
 
             i += 1
-            print(f"Процентов {(i / len(train_loader)) * 100}")
+
+            end_time = time.time()
+            elapsed_time = end_time - start_time
+            print(f"Процентов {(i / len(train_loader)) * 100}, {elapsed_time}")
+        end_time_ep = time.time()
+        print(f'Трен. заверш. {end_time_ep - start_time_ep}')
         return loss
 
     def validating_model(self, e_model: encapsulated_data.EncapsulatedModel,
@@ -146,19 +156,30 @@ class ModelManager():
         loss = None
         i = 0
         with torch.no_grad():
+            start_time_ep = time.time()
             for images, text_embs, attention_mask in val_loader:
-                if i == 2:
-                    break
+                start_time = time.time()
+
+                if hyperparams.OGRANICHITEL:
+                    if i == hyperparams.N_OGRANICHITEL:
+                        print('Вал. заверш.')
+                        break
 
                 images, text_embs, attention_mask = images.to(device), text_embs.to(device), attention_mask.to(device)
                 t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
                 xt = self.forward_diffusion(images, t, alphas_bar).to(device)  # добавляем шум
-                predicted_noise = model(xt, text_embs, t, attention_mask)
+                time_emb = self.get_time_emd(t, hyperparams.TIME_EMB_DIM, device)
+                predicted_noise = model(xt, text_embs, time_emb, attention_mask)
                 loss_val = criterion(predicted_noise, torch.randn_like(xt))
                 loss = loss_val
 
                 i += 1
-                print(f"Процентов {(i / len(val_loader)) * 100}")
+
+                end_time = time.time()
+                elapsed_time = end_time - start_time
+                print(f"Процентов {(i / len(val_loader)) * 100}, {elapsed_time}")
+            end_time_ep = time.time()
+            print(f'Вал. заверш. {end_time_ep - start_time_ep}')
         return loss
 
     def test_model(self, e_model: encapsulated_data.EncapsulatedModel,
@@ -178,17 +199,31 @@ class ModelManager():
         test_loss = 0.0
         i = 0
         with torch.no_grad():
+            start_time_ep = time.time()
             for images, text_embs, attention_mask in test_loader:
+                start_time = time.time()
+
+                if hyperparams.OGRANICHITEL:
+                    if i == hyperparams.N_OGRANICHITEL:
+                        print('Тест. заверш.')
+                        break
+
                 images, text_embs, attention_mask = images.to(device), text_embs.to(
                     device), attention_mask.to(device)
                 t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
                 xt = self.forward_diffusion(images, t, alphas_bar).to(device)  # добавляем шум
-                predicted_noise = model(xt, text_embs, t, attention_mask)
+                time_emb = self.get_time_emd(t, hyperparams.TIME_EMB_DIM, device)
+                predicted_noise = model(xt, text_embs, time_emb, attention_mask)
                 loss_test = criterion(predicted_noise, torch.randn_like(xt))
                 test_loss += loss_test.item()
 
                 i += 1
-                print(f"Процентов {(i / len(test_loader)) * 100}, test loss: {loss_test.item()}")
+
+                end_time = time.time()
+                print(
+                    f"Процентов {(i / len(test_loader)) * 100}, test loss: {loss_test.item()}, {end_time - start_time}")
+        end_time_ep = time.time()
+        print(f'Тест. заверш. {end_time_ep - start_time_ep}')
         # accuracy = 100 * correct / total
         avg_test_loss = test_loss / len(test_loader)
         # print(f'Test Accuracy: {accuracy:.2f}%, Test Loss: {avg_test_loss:.4f}')
@@ -235,7 +270,8 @@ class ModelManager():
     def load_my_model(self, model_dir, model_file, device):
         # Загружаем модель
         model_filepath = model_dir + model_file
-        model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM_REDUCED, device).to(device)  # Нужно заново создать архитектуру модели
+        model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM_REDUCED, device).to(
+            device)  # Нужно заново создать архитектуру модели
         model.load_state_dict(torch.load(model_filepath))
         model.eval()  # Устанавливаем модель в режим оценки (для тестирования)
         return model
