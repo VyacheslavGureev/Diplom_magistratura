@@ -41,8 +41,8 @@ def neural_func():
 
     # mode = 'img'  #
     # mode = 'create_train_save'  #
-    mode = 'create_train_test_save'  #
-    # mode = 'load_train_test_save'  #
+    # mode = 'create_train_test_save'  #
+    mode = 'load_train_test_save'  #
     # mode = 'load_test'  #
     # mode = 'load_gen'  #
 
