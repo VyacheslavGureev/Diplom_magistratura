@@ -70,8 +70,6 @@ class ModelManager():
         time_embedding = torch.cat([torch.sin(angles), torch.cos(angles)], dim=-1)
         return time_embedding  # (B, embed_dim)
 
-
-
     def train_model(self, e_model: encapsulated_data.EncapsulatedModel, e_loader, epochs):
         for epoch in range(epochs):
             train_loss = self.training_model(e_model, e_loader)
@@ -107,20 +105,20 @@ class ModelManager():
         i = 0
         start_time_ep = time.time()
         for images, text_embs, attention_mask in train_loader:
-            start_time = time.time()
-
             if hyperparams.OGRANICHITEL:
                 if i == hyperparams.N_OGRANICHITEL:
                     print('Трен. заверш.')
                     break
+            start_time = time.time()
+
+            images, text_embs, attention_mask = images.to(device), text_embs.to(device), attention_mask.to(device)
 
             optimizer.zero_grad()
 
-            images, text_embs, attention_mask = images.to(device), text_embs.to(device), attention_mask.to(device)
             t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
+            time_emb = self.get_time_emd(t, hyperparams.TIME_EMB_DIM, device)
 
             xt = self.forward_diffusion(images, t, alphas_bar).to(device)  # добавляем шум
-            time_emb = self.get_time_emd(t, hyperparams.TIME_EMB_DIM, device)
             predicted_noise = model(xt, text_embs, time_emb, attention_mask)
 
             loss_train = criterion(predicted_noise, torch.randn_like(xt))  # сравниваем с реальным шумом
@@ -130,10 +128,8 @@ class ModelManager():
             optimizer.step()
 
             i += 1
-
             end_time = time.time()
-            elapsed_time = end_time - start_time
-            print(f"Процентов {(i / len(train_loader)) * 100}, {elapsed_time}")
+            print(f"Процентов {(i / len(train_loader)) * 100}, {end_time - start_time}")
         end_time_ep = time.time()
         print(f'Трен. заверш. {end_time_ep - start_time_ep}')
         return loss
@@ -158,26 +154,26 @@ class ModelManager():
         with torch.no_grad():
             start_time_ep = time.time()
             for images, text_embs, attention_mask in val_loader:
-                start_time = time.time()
-
                 if hyperparams.OGRANICHITEL:
                     if i == hyperparams.N_OGRANICHITEL:
                         print('Вал. заверш.')
                         break
+                start_time = time.time()
 
                 images, text_embs, attention_mask = images.to(device), text_embs.to(device), attention_mask.to(device)
+
                 t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
-                xt = self.forward_diffusion(images, t, alphas_bar).to(device)  # добавляем шум
                 time_emb = self.get_time_emd(t, hyperparams.TIME_EMB_DIM, device)
+
+                xt = self.forward_diffusion(images, t, alphas_bar).to(device)  # добавляем шум
                 predicted_noise = model(xt, text_embs, time_emb, attention_mask)
+
                 loss_val = criterion(predicted_noise, torch.randn_like(xt))
                 loss = loss_val
 
                 i += 1
-
                 end_time = time.time()
-                elapsed_time = end_time - start_time
-                print(f"Процентов {(i / len(val_loader)) * 100}, {elapsed_time}")
+                print(f"Процентов {(i / len(val_loader)) * 100}, {end_time - start_time}")
             end_time_ep = time.time()
             print(f'Вал. заверш. {end_time_ep - start_time_ep}')
         return loss
@@ -201,28 +197,29 @@ class ModelManager():
         with torch.no_grad():
             start_time_ep = time.time()
             for images, text_embs, attention_mask in test_loader:
-                start_time = time.time()
-
                 if hyperparams.OGRANICHITEL:
                     if i == hyperparams.N_OGRANICHITEL:
                         print('Тест. заверш.')
                         break
+                start_time = time.time()
 
                 images, text_embs, attention_mask = images.to(device), text_embs.to(
                     device), attention_mask.to(device)
+
                 t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
-                xt = self.forward_diffusion(images, t, alphas_bar).to(device)  # добавляем шум
                 time_emb = self.get_time_emd(t, hyperparams.TIME_EMB_DIM, device)
+
+                xt = self.forward_diffusion(images, t, alphas_bar).to(device)  # добавляем шум
                 predicted_noise = model(xt, text_embs, time_emb, attention_mask)
+
                 loss_test = criterion(predicted_noise, torch.randn_like(xt))
                 test_loss += loss_test.item()
 
                 i += 1
-
                 end_time = time.time()
                 print(
                     f"Процентов {(i / len(test_loader)) * 100}, test loss: {loss_test.item()}, {end_time - start_time}")
-        end_time_ep = time.time()
+            end_time_ep = time.time()
         print(f'Тест. заверш. {end_time_ep - start_time_ep}')
         # accuracy = 100 * correct / total
         avg_test_loss = test_loss / len(test_loader)
@@ -248,7 +245,7 @@ class ModelManager():
         checkpoint = torch.load(model_filepath)
         e_model = encapsulated_data.EncapsulatedModel()
 
-        model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM_REDUCED, device).to(device)
+        model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, device).to(device)
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer = optim.Adam(model.parameters(), lr=hyperparams.LR)
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -261,20 +258,20 @@ class ModelManager():
 
         return e_model
 
-    def save_my_model(self, model, model_dir, model_file):
-        # Сохраняем только state_dict модели
-        model_filepath = model_dir + model_file
-        model.cpu()
-        torch.save(model.state_dict(), model_filepath)
-
-    def load_my_model(self, model_dir, model_file, device):
-        # Загружаем модель
-        model_filepath = model_dir + model_file
-        model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM_REDUCED, device).to(
-            device)  # Нужно заново создать архитектуру модели
-        model.load_state_dict(torch.load(model_filepath))
-        model.eval()  # Устанавливаем модель в режим оценки (для тестирования)
-        return model
+    # def save_my_model(self, model, model_dir, model_file):
+    #     # Сохраняем только state_dict модели
+    #     model_filepath = model_dir + model_file
+    #     model.cpu()
+    #     torch.save(model.state_dict(), model_filepath)
+    #
+    # def load_my_model(self, model_dir, model_file, device):
+    #     # Загружаем модель
+    #     model_filepath = model_dir + model_file
+    #     model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM_REDUCED, device).to(
+    #         device)  # Нужно заново создать архитектуру модели
+    #     model.load_state_dict(torch.load(model_filepath))
+    #     model.eval()  # Устанавливаем модель в режим оценки (для тестирования)
+    #     return model
 
     # Функция для reverse diffusion
     def reverse_diffusion(self, model, text_embedding, attn_mask, device):

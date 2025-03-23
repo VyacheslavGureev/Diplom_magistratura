@@ -1,31 +1,6 @@
-import math
-
 import torch
 import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import random_split, DataLoader
 import matplotlib.pyplot as plt
-
-
-# import models.hyperparams as hyperparams
-
-
-# class SinusoidalTimeEmbedding(nn.Module):
-#     def __init__(self, embed_dim, device):
-#         super().__init__()
-#         self.embed_dim = embed_dim
-#         self.device = device
-#
-#     def forward(self, t):
-#         """t — это тензор со значениями [0, T], размерность (B,)"""
-#         half_dim = self.embed_dim // 2
-#         # freqs = torch.exp(-torch.arange(half_dim, dtype=torch.float32) * (torch.log(torch.tensor(10000.0)) / half_dim))
-#         freqs = torch.exp(
-#             -torch.arange(half_dim, dtype=torch.float32) * (torch.log(torch.tensor(10000.0)) / half_dim)).to(
-#             self.device)
-#         angles = t[:, None] * freqs[None, :]
-#         time_embedding = torch.cat([torch.sin(angles), torch.cos(angles)], dim=-1)
-#         return time_embedding  # (B, embed_dim)
 
 
 class CrossAttentionMultiHead(nn.Module):
@@ -71,7 +46,7 @@ class UNetEncBlock(nn.Module):
         super().__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=0,
                               stride=1)  # Уменьшение изобр. на 2 пикселя (правильно)
-        self.time_mlp = nn.Linear(time_emb_dim, out_channels)  # Преобразуем `t`
+        self.time_mlp = nn.Linear(time_emb_dim, out_channels)  # Преобразуем `t` к текущем получившемуся кол-ву каналов
         self.group_norm = nn.GroupNorm(num_groups=32, num_channels=out_channels, affine=True)
         self.silu = nn.SiLU()
         self.in_channels = in_channels
@@ -143,22 +118,28 @@ class DeepBottleneck(nn.Module):
         self.deep_block_1 = UNetBottleneckBlock(256, 512,
                                                 time_emb_dim)  # этот блок считает свёртку, но не уменьшает изображение (conv 3*3)
         self.deep_block_2 = UNetBottleneckBlock(512, 512, time_emb_dim)
-        self.cross_attn_multi_head_1 = CrossAttentionMultiHead(text_emb_dim, 512)  # Cross Attention на уровне bottleneck
+        self.cross_attn_multi_head_1 = CrossAttentionMultiHead(text_emb_dim,
+                                                               512)  # Cross Attention на уровне bottleneck
         self.cross_attn_multi_head_2 = CrossAttentionMultiHead(text_emb_dim, 512)
         self.residual = nn.Conv2d(256, 512,
                                   kernel_size=1)  # Residual Block (для совпадения количества каналов, применяем слой свёртки) (задан правильно)
-        self.group_norm = nn.GroupNorm(num_groups=32, num_channels=512, affine=True)
-        self.silu = nn.SiLU()
+        self.group_norm_1 = nn.GroupNorm(num_groups=32, num_channels=512, affine=True)
+        self.silu_1 = nn.SiLU()
+        self.group_norm_2 = nn.GroupNorm(num_groups=32, num_channels=512, affine=True)
+        self.silu_2 = nn.SiLU()
 
     # здесь правильный порядок преобразований!!!
     def forward(self, x, text_emb, time_emb, attention_mask):
         res = x  # Для Residual Connection
         x = self.deep_block_1(x, time_emb)
         x = self.cross_attn_multi_head_1(x, text_emb, attention_mask)
+        x = self.group_norm_1(x)
+        x = self.silu_1(x)
+
         x = self.deep_block_2(x, time_emb)
         x = self.cross_attn_multi_head_2(x, text_emb, attention_mask)
-        x = self.group_norm(x)
-        x = self.silu(x)
+        x = self.group_norm_2(x)
+        x = self.silu_2(x)
         r = self.residual(res)
         x = x + r
         return x
@@ -192,7 +173,6 @@ class MyUNet(nn.Module):
         # --- Upsampling (Расширение) ---
         self.unet_dec_up_conv_1 = nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2, padding=0,
                                                      output_padding=0)  # правильно (up conv 2*2) Этот блок увеличивает изображение в 2 раза
-
         self.unet_dec_deconv_1 = UNetDecBlock(256 + 256, 256,
                                               time_emb_dim)  # каждый такой блок увеличивает изображение на 2 пикселя (deconv 3*3)
         self.unet_dec_deconv_2 = UNetDecBlock(256, 256, time_emb_dim)
@@ -202,7 +182,6 @@ class MyUNet(nn.Module):
 
         self.unet_dec_up_conv_2 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2, padding=0,
                                                      output_padding=0)  # правильно
-
         self.unet_dec_deconv_3 = UNetDecBlock(128 + 128, 128, time_emb_dim)
         self.unet_dec_deconv_4 = UNetDecBlock(128, 128, time_emb_dim)
         self.cross_attn_2 = CrossAttentionMultiHead(txt_emb_dim, 128)
@@ -211,7 +190,6 @@ class MyUNet(nn.Module):
 
         self.unet_dec_up_conv_3 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2, padding=0,
                                                      output_padding=0)  # правильно
-
         self.unet_dec_deconv_5 = UNetDecBlock(64 + 64, 64, time_emb_dim)
         self.unet_dec_deconv_6 = UNetDecBlock(64, 64, time_emb_dim)
         self.cross_attn_3 = CrossAttentionMultiHead(txt_emb_dim, 64)
@@ -247,6 +225,7 @@ class MyUNet(nn.Module):
 
         x = self.deep_bottleneck(x, text_emb, time_emb, attension_mask)
 
+        # это правильный порядок блока!!!
         x = self.unet_dec_up_conv_1(x)
         x_cat_1 = torch.cat([x, x_skip_conn_3], dim=1)
         x = self.unet_dec_deconv_1(x_cat_1, time_emb)

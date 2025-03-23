@@ -145,30 +145,30 @@ def create_dataset(image_folder, captions_file):
 #     return text_emb_reduced
 
 
-def reduce_embedding_svd(text_emb, reduced_dim):
-    """
-    Уменьшает размерность текстового эмбеддинга с помощью SVD.
-
-    Параметры:
-    - text_emb: torch.Tensor, размерность (tokens, original_dim)
-    - reduced_dim: int, желаемая размерность (reduced_dim)
-
-    Возвращает:
-    - reduced_emb: torch.Tensor, размерность (tokens, reduced_dim)
-    """
-    # SVD-разложение
-    U, S, Vt = torch.linalg.svd(text_emb, full_matrices=False)
-
-    # Оставляем только первые reduced_dim компонент
-    reduced_emb = U[:, :reduced_dim] @ torch.diag(S[:reduced_dim])
-
-    return reduced_emb
-
-
-def reduce_embedding_pca(text_emb, reduced_dim):
-    tokens, original_dim = text_emb.shape
-    pca = PCA(n_components=reduced_dim)
-    text_emb_reshaped = text_emb.view(-1, original_dim).cpu().numpy()
-    reduced_emb = pca.fit_transform(text_emb_reshaped)
-    new_tensor = torch.tensor(reduced_emb, dtype=text_emb.dtype, device=text_emb.device).view(tokens, reduced_dim)
-    return new_tensor
+# def reduce_embedding_svd(text_emb, reduced_dim):
+#     """
+#     Уменьшает размерность текстового эмбеддинга с помощью SVD.
+#
+#     Параметры:
+#     - text_emb: torch.Tensor, размерность (tokens, original_dim)
+#     - reduced_dim: int, желаемая размерность (reduced_dim)
+#
+#     Возвращает:
+#     - reduced_emb: torch.Tensor, размерность (tokens, reduced_dim)
+#     """
+#     # SVD-разложение
+#     U, S, Vt = torch.linalg.svd(text_emb, full_matrices=False)
+#
+#     # Оставляем только первые reduced_dim компонент
+#     reduced_emb = U[:, :reduced_dim] @ torch.diag(S[:reduced_dim])
+#
+#     return reduced_emb
+#
+#
+# def reduce_embedding_pca(text_emb, reduced_dim):
+#     tokens, original_dim = text_emb.shape
+#     pca = PCA(n_components=reduced_dim)
+#     text_emb_reshaped = text_emb.view(-1, original_dim).cpu().numpy()
+#     reduced_emb = pca.fit_transform(text_emb_reshaped)
+#     new_tensor = torch.tensor(reduced_emb, dtype=text_emb.dtype, device=text_emb.device).view(tokens, reduced_dim)
+#     return new_tensor
