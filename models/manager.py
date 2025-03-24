@@ -15,10 +15,75 @@ import models.encapsulated_data as encapsulated_data
 import models.nn_model as nn_model
 
 
+class DiffusionReverseProcess:
+    r"""
+
+    Reverse Process class as described in the
+    paper "Denoising Diffusion Probabilistic Models"
+
+    """
+
+    def __init__(self,
+                 num_time_steps=1000,
+                 beta_start=1e-4,
+                 beta_end=0.02
+                 ):
+
+        # Precomputing beta, alpha, and alpha_bar for all t's.
+        self.b = torch.linspace(beta_start, beta_end, num_time_steps)  # b -> beta
+        self.a = 1 - self.b  # a -> alpha
+        self.a_bar = torch.cumprod(self.a, dim=0)  # a_bar = alpha_bar
+
+    def sample_prev_timestep(self, xt, noise_pred, t):
+
+        r""" Sample x_(t-1) given x_t and noise predicted
+             by model.
+
+             :param xt: Image tensor at timestep t of shape -> B x C x H x W
+             :param noise_pred: Noise Predicted by model of shape -> B x C x H x W
+             :param t: Current time step
+
+        """
+
+        # Original Image Prediction at timestep t
+        x0 = xt - (torch.sqrt(1 - self.a_bar.to(xt.device)[t]) * noise_pred)
+        x0 = x0 / torch.sqrt(self.a_bar.to(xt.device)[t])
+        x0 = torch.clamp(x0, -1., 1.)
+
+        # mean of x_(t-1)
+        mean = (xt - ((1 - self.a.to(xt.device)[t]) * noise_pred) / (torch.sqrt(1 - self.a_bar.to(xt.device)[t])))
+        mean = mean / (torch.sqrt(self.a.to(xt.device)[t]))
+
+        # only return mean
+        if t == 0:
+            return mean, x0
+
+        else:
+            variance = (1 - self.a_bar.to(xt.device)[t - 1]) / (1 - self.a_bar.to(xt.device)[t])
+            variance = variance * self.b.to(xt.device)[t]
+            sigma = variance ** 0.5
+            z = torch.randn(xt.shape).to(xt.device)
+
+            return mean + sigma * z, x0
+
+
 class ModelManager():
 
-    def __init__(self):
-        pass
+    def __init__(self, device):
+        self.device = device
+
+        beta_start = 1e-4
+        beta_end = 0.02
+        self.create_diff_sheduler(hyperparams.T, beta_start, beta_end)
+
+    def create_diff_sheduler(self, num_time_steps, beta_start, beta_end):
+        # Precomputing beta, alpha, and alpha_bar for all t's.
+        self.b = torch.linspace(beta_start, beta_end, num_time_steps)  # b -> beta
+        self.a = 1 - self.b  # a -> alpha
+        self.a_bar = torch.cumprod(self.a, dim=0)  # a_bar = alpha_bar
+        self.b = self.b.to(self.device)
+        self.a = self.a.to(self.device)
+        self.a_bar = self.a_bar.to(self.device)
 
     # --- Создание модели ---
     def create_model(self):
@@ -51,24 +116,61 @@ class ModelManager():
         return images, text_embs, masks
 
     # --- Определение форвардного процесса (зашумление) ---
-    def forward_diffusion(self, x0, t, alphas_bar, noise=None):
+    def forward_diffusion(self, x0, t, noise=None):
         """ Добавляет стандартный гауссовский шум к изображению """
         if noise is None:
             noise = torch.randn_like(x0)
-        at = alphas_bar[t][:, None, None, None]
+        at = self.a_bar[t][:, None, None, None]
         xt = torch.sqrt(at) * x0 + torch.sqrt(1 - at) * noise
         return xt
 
-    def get_time_emd(self, t, embed_dim, device):
-        """t — это тензор со значениями [0, T], размерность (B,)"""
-        half_dim = embed_dim // 2
-        # freqs = torch.exp(-torch.arange(half_dim, dtype=torch.float32) * (torch.log(torch.tensor(10000.0)) / half_dim))
-        freqs = torch.exp(
-            -torch.arange(half_dim, dtype=torch.float32) * (torch.log(torch.tensor(10000.0)) / half_dim)).to(
-            device)
-        angles = t[:, None] * freqs[None, :]
-        time_embedding = torch.cat([torch.sin(angles), torch.cos(angles)], dim=-1)
-        return time_embedding  # (B, embed_dim)
+    def get_time_embedding(self,
+                           time_steps: torch.Tensor,
+                           t_emb_dim: int
+                           ) -> torch.Tensor:
+
+        """
+        Transform a scalar time-step into a vector representation of size t_emb_dim.
+
+        :param time_steps: 1D tensor of size -> (Batch,)
+        :param t_emb_dim: Embedding Dimension -> for ex: 128 (scalar value)
+
+        :return tensor of size -> (B, t_emb_dim)
+        """
+
+        assert t_emb_dim % 2 == 0, "time embedding must be divisible by 2."
+
+        factor = 2 * torch.arange(start=0,
+                                  end=t_emb_dim // 2,
+                                  dtype=torch.float32,
+                                  device=time_steps.device
+                                  ) / (t_emb_dim)
+
+        factor = 10000 ** factor
+
+        t_emb = time_steps[:, None]  # B -> (B, 1)
+        t_emb = t_emb / factor  # (B, 1) -> (B, t_emb_dim//2)
+        t_emb = torch.cat([torch.sin(t_emb), torch.cos(t_emb)], dim=1)  # (B , t_emb_dim)
+
+        return t_emb
+
+    # def get_time_emd(self, t, embed_dim, device):
+    #     """t — это тензор со значениями [0, T], размерность (B,)"""
+    #     half_dim = embed_dim // 2
+    #     # freqs = torch.exp(-torch.arange(half_dim, dtype=torch.float32) * (torch.log(torch.tensor(10000.0)) / half_dim))
+    #     freqs = torch.exp(
+    #         -torch.arange(half_dim, dtype=torch.float32) * (torch.log(torch.tensor(10000.0)) / half_dim)).to(
+    #         device)
+    #     angles = t[:, None] * freqs[None, :]
+    #     time_embedding = torch.cat([torch.sin(angles), torch.cos(angles)], dim=-1)
+    #     return time_embedding  # (B, embed_dim)
+
+    # def get_coeffs(self, device):
+    #     beta = torch.linspace(0.0001, 0.008, hyperparams.T)  # Линейно возрастающие b_t
+    #     alpha = 1 - beta  # a_t
+    #     alphas_bar = torch.cumprod(alpha, dim=0).to(device)  # Накапливаемый коэффициент a_t (T,)
+    #     alpha, beta, alphas_bar = alpha.to(device), beta.to(device), alphas_bar.to(device)
+    #     return alpha, beta, alphas_bar
 
     def train_model(self, e_model: encapsulated_data.EncapsulatedModel, e_loader, epochs):
         for epoch in range(epochs):
@@ -97,9 +199,7 @@ class ModelManager():
 
         model.train()  # Включаем режим обучения
 
-        beta = torch.linspace(0.0001, 0.02, hyperparams.T)  # Линейно возрастающие b_t
-        alpha = 1 - beta  # a_t
-        alphas_bar = torch.cumprod(alpha, dim=0).to(device)  # Накапливаемый коэффициент a_t (T,)
+        # a, b, a_bar = self.get_coeffs(device)
 
         loss = None
         i = 0
@@ -116,9 +216,9 @@ class ModelManager():
             optimizer.zero_grad()
 
             t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
-            time_emb = self.get_time_emd(t, hyperparams.TIME_EMB_DIM, device)
+            time_emb = self.get_time_embedding(t, hyperparams.TIME_EMB_DIM)
 
-            xt = self.forward_diffusion(images, t, alphas_bar).to(device)  # добавляем шум
+            xt = self.forward_diffusion(images, t).to(device)  # добавляем шум
             predicted_noise = model(xt, text_embs, time_emb, attention_mask)
 
             loss_train = criterion(predicted_noise, torch.randn_like(xt))  # сравниваем с реальным шумом
@@ -144,10 +244,6 @@ class ModelManager():
 
         model.eval()  # Переключаем в режим валидации
 
-        beta = torch.linspace(0.0001, 0.02, hyperparams.T)  # Линейно возрастающие b_t
-        alpha = 1 - beta  # a_t
-        alphas_bar = torch.cumprod(alpha, dim=0).to(device)  # Накапливаемый коэффициент a_t (T,)
-
         # Оценка на валидационном датасете
         loss = None
         i = 0
@@ -163,9 +259,9 @@ class ModelManager():
                 images, text_embs, attention_mask = images.to(device), text_embs.to(device), attention_mask.to(device)
 
                 t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
-                time_emb = self.get_time_emd(t, hyperparams.TIME_EMB_DIM, device)
+                time_emb = self.get_time_embedding(t, hyperparams.TIME_EMB_DIM)
 
-                xt = self.forward_diffusion(images, t, alphas_bar).to(device)  # добавляем шум
+                xt = self.forward_diffusion(images, t).to(device)  # добавляем шум
                 predicted_noise = model(xt, text_embs, time_emb, attention_mask)
 
                 loss_val = criterion(predicted_noise, torch.randn_like(xt))
@@ -188,10 +284,6 @@ class ModelManager():
 
         model.eval()
 
-        beta = torch.linspace(0.0001, 0.02, hyperparams.T)  # Линейно возрастающие b_t
-        alpha = 1 - beta  # a_t
-        alphas_bar = torch.cumprod(alpha, dim=0).to(device)  # Накапливаемый коэффициент a_t (T,)
-
         test_loss = 0.0
         i = 0
         with torch.no_grad():
@@ -207,9 +299,9 @@ class ModelManager():
                     device), attention_mask.to(device)
 
                 t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
-                time_emb = self.get_time_emd(t, hyperparams.TIME_EMB_DIM, device)
+                time_emb = self.get_time_embedding(t, hyperparams.TIME_EMB_DIM, device)
 
-                xt = self.forward_diffusion(images, t, alphas_bar).to(device)  # добавляем шум
+                xt = self.forward_diffusion(images, t).to(device)  # добавляем шум
                 predicted_noise = model(xt, text_embs, time_emb, attention_mask)
 
                 loss_test = criterion(predicted_noise, torch.randn_like(xt))
@@ -278,11 +370,12 @@ class ModelManager():
         # Инициализация случайного шума (начало процесса)
         x_t = torch.randn(hyperparams.BATCH_SIZE, 3, hyperparams.IMG_SIZE, hyperparams.IMG_SIZE).to(
             device)  # (B, C, H, W)
-        # t = torch.linspace(0, hyperparams.T - 1, hyperparams.T).to(device) # (T, )
+        a, b, a_bar = self.get_coeffs(device)
 
-        beta = (torch.linspace(0.0001, 0.02, hyperparams.T)).to(device)  # Линейно возрастающие b_t
-        alpha = 1 - beta  # a_t
-        alpha = alpha.to(device)
+        # beta = (torch.linspace(0.0001, 0.008, hyperparams.T)).to(device)  # Линейно возрастающие b_t
+        # alpha = 1 - beta  # a_t
+        # alphas_bar = torch.cumprod(alpha, dim=0).to(device)  # Накапливаемый коэффициент a_t (T,)
+        # alpha = alpha.to(device)
         # alphas_bar = torch.cumprod(alpha, dim=0).to(device)  # Накапливаемый коэффициент a_t (T,)
         t_tensor = torch.arange(0, hyperparams.T, 1, dtype=torch.int)
         t_tensor = t_tensor.unsqueeze(1)
@@ -296,20 +389,17 @@ class ModelManager():
             for step in tqdm(range(hyperparams.T - 1, -1, -1), colour='white'):
                 # t_tensor = torch.full((hyperparams.BATCH_SIZE,), step).to(device) # (B, )
                 # Получаем предсказание шума на текущем шаге
-                predicted_noise = model(x_t, text_embedding, t_tensor[step], attn_mask)
+                # print(t_tensor[step])
 
-                # Обновляем изображение, используя predicted_noise и шаг диффузии
-                # beta = torch.linspace(0.0001, 0.02, hyperparams.T)  # Линейно возрастающие b_t
-                # alpha = 1 - beta  # a_t
-                # alphas_bar = torch.cumprod(alpha, dim=0).to(device)  # Накапливаемый коэффициент a_t (T,)
+                t_i = self.get_time_emd(t_tensor[step], hyperparams.TIME_EMB_DIM, device)
+                t_i = t_i.to(device)
 
-                # alpha_t = get_alpha_t(step)  # Получить коэффициент для текущего шага (или из таблицы)
-                # beta_t = get_beta_t(step)  # Получить шумовой коэффициент
+                predicted_noise = model(x_t, text_embedding, t_i, attn_mask)
 
-                # Reverse update (шаг обратной диффузии)
-                # x_t = (x_t - beta_t * predicted_noise) / alpha_t.sqrt()
+                # self.show_image(predicted_noise[5])
 
-                x_t = (1 / alpha[step]) * (x_t - (torch.sqrt(beta[step]) * predicted_noise))
+                x_t = (1 / torch.sqrt(a[step])) * (
+                            x_t - ((1 - a[step]) / (torch.sqrt(1 - a_bar[step]))) * predicted_noise)
 
                 # Можно добавить дополнительные шаги, такие как коррекция или уменьшение шума
                 # Например, можно добавить немного шума обратно с каждым шагом:
@@ -333,13 +423,13 @@ class ModelManager():
         img = self.reverse_diffusion(model, text_emb_batch, mask_batch, device)
         return img
 
-    # Пример функции для получения alpha_t и beta_t на основе предварительно рассчитанных значений
-    # def get_alpha_t(step):
-    #     # Это может быть что-то как простая функция зависимости alpha от шага t
-    #     alpha = 1 - (step / T)
-    #     return alpha
-    #
-    # def get_beta_t(step):
-    #     # Тоже может быть функция для получения шума
-    #     beta = (step / T) * 0.02  # Для примера
-    #     return beta
+    def show_image(self, tensor_img):
+        """ Визуализация тензора изображения """
+        # img = tensor_img.cpu().detach().numpy()
+        img = tensor_img.cpu().detach().numpy().transpose(1, 2, 0)  # Приводим к (H, W, C)
+        img = (img - img.min()) / (
+                img.max() - img.min())  # Нормализация к [0,1] (matplotlib ждёт данные в формате [0, 1], другие не примет)
+        plt.imshow(img)
+        plt.axis("off")  # Убираем оси
+        plt.show()
+        plt.pause(3600)

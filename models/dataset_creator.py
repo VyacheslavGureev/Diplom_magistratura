@@ -11,23 +11,6 @@ from torchvision import transforms
 import models.hyperparams as hyperparams
 
 
-# class TextEmbeddingReducer(torch.nn.Module):
-#     def __init__(self, input_dim, output_dim):
-#         super().__init__()
-#         self.linear = torch.nn.Linear(input_dim, output_dim)
-#         for param in self.linear.parameters():
-#             param.requires_grad = False
-#
-#         self.linear.weight.fill_(0.5)  # Устанавливаем все веса в 0.5
-#         self.linear.bias.fill_(0)
-#
-#     def forward(self, text_emb):
-#         return self.linear(text_emb)
-
-# Используем перед UNet
-# text_reducer = TextEmbeddingReducer(512, 256).to(device)
-# text_emb_reduced = text_reducer(text_emb)  # (B, tokens, 256)
-
 
 class ImageTextDataset(Dataset):
 
@@ -70,9 +53,8 @@ class ImageTextDataset(Dataset):
         image = Image.open(img_path).convert("RGB")
         image = self.transform(image)  # (C, H, W)
         # Загружаем подпись и получаем текстовый эмбеддинг
-        caption = self.captions[self.image_filenames[idx]][random.randint(0, 4)]  # Берём рандомную подпись
-
-        # caption = "A red cat ."
+        # caption = self.captions[self.image_filenames[idx]][random.randint(0, 4)]  # Берём рандомную подпись
+        caption = self.captions[self.image_filenames[idx]][0]  # Берём первую подпись
 
         tokens = self.tokenizer(
             caption,
@@ -84,11 +66,6 @@ class ImageTextDataset(Dataset):
         attention_mask = tokens['attention_mask'].squeeze(0)  # (max_length,)
         with torch.no_grad():
             text_emb_reduced = self.text_encoder(**tokens).last_hidden_state.squeeze(0)  # (max_length, txt_emb_dim)
-        # text_emb = self.text_reducer(text_emb)
-        # text_emb_reduced = self.text_reducer(text_emb)
-        # text_emb = reduce_embedding_linear(text_emb, hyperparams.TEXT_EMB_DIM_REDUCED)
-        # text_emb_reduced = reduce_embedding_svd(text_emb_reduced, hyperparams.TEXT_EMB_DIM_REDUCED)
-        # text_emb_reduced = reduce_embedding_pca(text_emb_reduced, hyperparams.TEXT_EMB_DIM_REDUCED)
         return image, text_emb_reduced, attention_mask
 
 
@@ -107,11 +84,6 @@ def get_text_emb(text):
     attention_mask = tokens['attention_mask'].squeeze(0)  # (max_length,)
     with torch.no_grad():
         text_emb_reduced = text_encoder(**tokens).last_hidden_state.squeeze(0)  # (max_length, txt_emb_dim)
-    # text_emb = self.text_reducer(text_emb)
-    # text_emb = reduce_embedding_linear(text_emb, hyperparams.TEXT_EMB_DIM_REDUCED)
-    #     text_emb_reduced = text_reducer(text_emb)
-    # text_emb_reduced = reduce_embedding_svd(text_emb_reduced, hyperparams.TEXT_EMB_DIM_REDUCED)
-    # text_emb_reduced = reduce_embedding_pca(text_emb_reduced, hyperparams.TEXT_EMB_DIM_REDUCED)
     return text_emb_reduced, attention_mask
 
 

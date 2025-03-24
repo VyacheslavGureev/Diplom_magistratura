@@ -1,10 +1,26 @@
 import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
+import math
+
+
+# class SinusoidalEmbeddings(nn.Module):
+#     def __init__(self, time_steps: int, embed_dim: int):
+#         super().__init__()
+#         position = torch.arange(time_steps).unsqueeze(1).float()
+#         div = torch.exp(torch.arange(0, embed_dim, 2).float() * -(math.log(10000.0) / embed_dim))
+#         embeddings = torch.zeros(time_steps, embed_dim, requires_grad=False)
+#         embeddings[:, 0::2] = torch.sin(position * div)
+#         embeddings[:, 1::2] = torch.cos(position * div)
+#         self.embeddings = embeddings
+#
+#     def forward(self, x, t):
+#         embeds = self.embeddings[t].to(x.device)
+#         return embeds[:, :, None, None]
 
 
 class CrossAttentionMultiHead(nn.Module):
-    def __init__(self, text_emb_dim, channels_current_layer, num_heads=8):
+    def __init__(self, text_emb_dim, channels_current_layer, num_heads=4):
         super().__init__()
         self.num_heads = num_heads
         self.scale = (channels_current_layer // num_heads) ** -0.5  # Масштабируем по размеру одной головы
@@ -39,6 +55,32 @@ class CrossAttentionMultiHead(nn.Module):
         attn_out = attn_out.permute(0, 2, 1).view(B, C, H,
                                                   W)  # (B, C, H, W) (H и W не меняются, поэтому делаем преобразование без доп. проверок)
         return attn_out
+
+
+class SelfAttentionBlock(nn.Module):
+    """
+    Perform GroupNorm and Multiheaded Self Attention operation.
+    """
+
+    def __init__(self, num_channels: int, num_groups: int = 8, num_heads: int = 4):
+        super(SelfAttentionBlock, self).__init__()
+        # GroupNorm
+        self.g_norm = nn.GroupNorm(num_groups, num_channels)
+        # Self-Attention
+        self.attn = nn.MultiheadAttention(
+            num_channels,
+            num_heads,
+            batch_first=True
+        )
+
+    def forward(self, x):
+        B, C, H, W = x.shape
+        x = x.reshape(B, C, H * W)
+        x = self.g_norm(x)
+        x = x.transpose(1, 2)
+        x, _ = self.attn(x, x, x)
+        x = x.transpose(1, 2).reshape(B, C, H, W)
+        return x
 
 
 class UNetEncBlock(nn.Module):
@@ -112,34 +154,177 @@ class UNetDecBlock(nn.Module):
         return x
 
 
+class TimeEmbedding(nn.Module):
+    """
+    Maps the Time Embedding to the Required output Dimension.
+    """
+
+    def __init__(self,
+                 n_out: int,  # Output Dimension
+                 t_emb_dim: int  # Time Embedding Dimension
+                 ):
+        super(TimeEmbedding, self).__init__()
+        # Time Embedding Block
+        self.te_block = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(t_emb_dim, n_out)
+        )
+
+    def forward(self, x):
+        return self.te_block(x)
+
+
+# class ResNetBlock(nn.Module):
+#     def __init__(self, in_channels, out_channels, time_emb_dim, mode):
+#         super().__init__()
+#         self.mode = mode
+#         if mode == 'down':
+#             self.conv_1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=0,
+#                                     stride=1)  # Уменьшение изобр. на 2 пикселя (правильно)
+#             self.conv_2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=0,
+#                                     stride=1)  # Уменьшение изобр. на 2 пикселя (правильно)
+#             self.residual = nn.Conv2d(in_channels, out_channels, kernel_size=5, padding=0, stride=1)
+#         elif mode == 'bottleneck':
+#             self.conv_1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1,
+#                                     stride=1)  # Не уменьша изобр. (правильно)
+#             self.conv_2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1,
+#                                     stride=1)  # Не уменьша изобр. (правильно)
+#             self.residual = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+#         elif mode == 'up':
+#             self.conv_1 = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=3, stride=1, padding=0,
+#                                              output_padding=0)  # Увелич. на 2 пикселя (правильно)
+#             self.conv_2 = nn.ConvTranspose2d(out_channels, out_channels, kernel_size=3, stride=1, padding=0,
+#                                              output_padding=0)  # Увелич. на 2 пикселя (правильно)
+#             self.residual = nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=2, stride=1)
+#
+#         if in_channels % 8 != 0:
+#             self.group_norm_1 = nn.GroupNorm(num_groups=in_channels, num_channels=in_channels, affine=True)
+#         else:
+#             self.group_norm_1 = nn.GroupNorm(num_groups=8, num_channels=in_channels, affine=True)
+#         self.group_norm_2 = nn.GroupNorm(num_groups=8, num_channels=out_channels, affine=True)
+#         self.group_norm_3 = nn.GroupNorm(num_groups=8, num_channels=out_channels, affine=True)
+#
+#         self.te_block = TimeEmbedding(out_channels, time_emb_dim)
+#
+#         self.self_attension = SelfAttentionBlock(out_channels)
+#
+#         self.silu_1 = nn.SiLU()
+#         self.silu_2 = nn.SiLU()
+#
+#
+#
+#     def forward(self, x, time_emb):
+#         residual = x
+#
+#         x = self.group_norm_1(x)
+#         x = self.silu_1(x)
+#         x = self.conv_1(x)
+#
+#         x = x + self.te_block(time_emb)[:, :, None, None]
+#
+#         x = self.group_norm_2(x)
+#         x = self.silu_2(x)
+#         x = self.conv_2(x)
+#
+#         x = self.group_norm_3(x)
+#         x = self.self_attension(x)
+#
+#         x = x + self.residual(residual)
+#         return x
+
+
+class ResNetBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, time_emb_dim):
+        super().__init__()
+        self.residual = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+        self.conv_1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1,
+                                stride=1)
+        self.conv_2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1,
+                                stride=1)
+
+        # if mode == 'down':
+        #     self.conv_1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1,
+        #                             stride=1)  # Уменьшение изобр. на 2 пикселя (правильно)
+        #     self.conv_2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=0,
+        #                             stride=1)  # Уменьшение изобр. на 2 пикселя (правильно)
+        #     self.residual = nn.Conv2d(in_channels, out_channels, kernel_size=5, padding=0, stride=1)
+        # elif mode == 'bottleneck':
+        #     self.conv_1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1,
+        #                             stride=1)  # Не уменьша изобр. (правильно)
+        #     self.conv_2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1,
+        #                             stride=1)  # Не уменьша изобр. (правильно)
+        #     self.residual = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+        # elif mode == 'up':
+        #     self.conv_1 = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=3, stride=1, padding=0,
+        #                                      output_padding=0)  # Увелич. на 2 пикселя (правильно)
+        #     self.conv_2 = nn.ConvTranspose2d(out_channels, out_channels, kernel_size=3, stride=1, padding=0,
+        #                                      output_padding=0)  # Увелич. на 2 пикселя (правильно)
+        #     self.residual = nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=2, stride=1)
+
+        if in_channels % 8 != 0:
+            self.group_norm_1 = nn.GroupNorm(num_groups=in_channels, num_channels=in_channels, affine=True)
+        else:
+            self.group_norm_1 = nn.GroupNorm(num_groups=8, num_channels=in_channels, affine=True)
+        self.group_norm_2 = nn.GroupNorm(num_groups=8, num_channels=out_channels, affine=True)
+        self.group_norm_3 = nn.GroupNorm(num_groups=8, num_channels=out_channels, affine=True)
+
+        self.te_block = TimeEmbedding(out_channels, time_emb_dim)
+
+        # self.self_attension = SelfAttentionBlock(out_channels)
+
+        self.silu_1 = nn.SiLU()
+        self.silu_2 = nn.SiLU()
+
+    def forward(self, x, time_emb):
+        residual = x
+
+        x = self.group_norm_1(x)
+        x = self.silu_1(x)
+        x = self.conv_1(x)
+
+        x = x + self.te_block(time_emb)[:, :, None, None]
+
+        x = self.group_norm_2(x)
+        x = self.silu_2(x)
+        x = self.conv_2(x)
+
+        # x = self.group_norm_3(x)
+        # x = self.self_attension(x)
+
+        x = x + self.residual(residual)
+        return x
+
+
 class DeepBottleneck(nn.Module):
     def __init__(self, text_emb_dim, time_emb_dim):
         super().__init__()
-        self.deep_block_1 = UNetBottleneckBlock(256, 512,
-                                                time_emb_dim)  # этот блок считает свёртку, но не уменьшает изображение (conv 3*3)
-        self.deep_block_2 = UNetBottleneckBlock(512, 512, time_emb_dim)
-        self.cross_attn_multi_head_1 = CrossAttentionMultiHead(text_emb_dim,
-                                                               512)  # Cross Attention на уровне bottleneck
-        self.cross_attn_multi_head_2 = CrossAttentionMultiHead(text_emb_dim, 512)
+
         self.residual = nn.Conv2d(256, 512,
                                   kernel_size=1)  # Residual Block (для совпадения количества каналов, применяем слой свёртки) (задан правильно)
-        self.group_norm_1 = nn.GroupNorm(num_groups=32, num_channels=512, affine=True)
-        self.silu_1 = nn.SiLU()
-        self.group_norm_2 = nn.GroupNorm(num_groups=32, num_channels=512, affine=True)
-        self.silu_2 = nn.SiLU()
+        self.deep_block_1 = ResNetBlock(256, 512, time_emb_dim)
+        self.self_attension = SelfAttentionBlock(512)
+        self.deep_block_2 = ResNetBlock(512, 512, time_emb_dim)
+
+        # self.deep_block_1 = UNetBottleneckBlock(256, 512,
+        #                                         time_emb_dim)  # этот блок считает свёртку, но не уменьшает изображение (conv 3*3)
+        # self.deep_block_2 = UNetBottleneckBlock(512, 512, time_emb_dim)
+        # self.cross_attn_multi_head_1 = CrossAttentionMultiHead(text_emb_dim,
+        #                                                        512)  # Cross Attention на уровне bottleneck
+        self.cross_attn_multi_head_1 = CrossAttentionMultiHead(text_emb_dim, 512)
+
+
+        # self.group_norm_1 = nn.GroupNorm(num_groups=8, num_channels=512, affine=True)
+        # self.silu_1 = nn.SiLU()
+        # self.group_norm_2 = nn.GroupNorm(num_groups=8, num_channels=512, affine=True)
+        # self.silu_2 = nn.SiLU()
 
     # здесь правильный порядок преобразований!!!
     def forward(self, x, text_emb, time_emb, attention_mask):
         res = x  # Для Residual Connection
         x = self.deep_block_1(x, time_emb)
-        x = self.cross_attn_multi_head_1(x, text_emb, attention_mask)
-        x = self.group_norm_1(x)
-        x = self.silu_1(x)
-
+        x = self.self_attension(x)
         x = self.deep_block_2(x, time_emb)
-        x = self.cross_attn_multi_head_2(x, text_emb, attention_mask)
-        x = self.group_norm_2(x)
-        x = self.silu_2(x)
+        x = self.cross_attn_multi_head_1(x, text_emb, attention_mask)
         r = self.residual(res)
         x = x + r
         return x
@@ -151,75 +336,51 @@ class MyUNet(nn.Module):
 
         self.device = device
 
-        # self.time_embedding = SinusoidalTimeEmbedding(
-        #     256, device)  # (это число (256) должно соотвествовать 3-ему инициализированному числу в UNetBlock)
-        # это число означает размерность эмбеддинга одного числа t
-
         # --- Downsampling (Сжатие) ---
-        self.unet_enc_conv_1 = UNetEncBlock(3, 64,
-                                            time_emb_dim)  # каждый такой блок уменьшает изображение на 2 пикселя (conv 3*3)
-        self.unet_enc_conv_2 = UNetEncBlock(64, 64, time_emb_dim)
+        self.encoder_1 = ResNetBlock(3, 64, time_emb_dim)
         self.pool_1 = nn.MaxPool2d(2, 2)  # уменьшаем изображение в 2 раза (max pool 2*2)
-        self.unet_enc_conv_3 = UNetEncBlock(64, 128, time_emb_dim)
-        self.unet_enc_conv_4 = UNetEncBlock(128, 128, time_emb_dim)
+        self.encoder_2 = ResNetBlock(64, 128, time_emb_dim)
         self.pool_2 = nn.MaxPool2d(2, 2)
-        self.unet_enc_conv_5 = UNetEncBlock(128, 256, time_emb_dim)
-        self.unet_enc_conv_6 = UNetEncBlock(256, 256, time_emb_dim)
+        self.encoder_3 = ResNetBlock(128, 256, time_emb_dim)
         self.pool_3 = nn.MaxPool2d(2, 2)
 
-        # --- Bottleneck (Самая узкая часть) ---
         self.deep_bottleneck = DeepBottleneck(txt_emb_dim, time_emb_dim)
 
-        # --- Upsampling (Расширение) ---
         self.unet_dec_up_conv_1 = nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2, padding=0,
                                                      output_padding=0)  # правильно (up conv 2*2) Этот блок увеличивает изображение в 2 раза
-        self.unet_dec_deconv_1 = UNetDecBlock(256 + 256, 256,
-                                              time_emb_dim)  # каждый такой блок увеличивает изображение на 2 пикселя (deconv 3*3)
-        self.unet_dec_deconv_2 = UNetDecBlock(256, 256, time_emb_dim)
+        self.decoder_1 = ResNetBlock(256 + 256, 256, time_emb_dim)
         self.cross_attn_1 = CrossAttentionMultiHead(txt_emb_dim, 256)
-        self.group_norm_1 = nn.GroupNorm(num_groups=32, num_channels=256, affine=True)
-        self.silu_1 = nn.SiLU()
 
         self.unet_dec_up_conv_2 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2, padding=0,
                                                      output_padding=0)  # правильно
-        self.unet_dec_deconv_3 = UNetDecBlock(128 + 128, 128, time_emb_dim)
-        self.unet_dec_deconv_4 = UNetDecBlock(128, 128, time_emb_dim)
+        self.decoder_2 = ResNetBlock(128 + 128, 128, time_emb_dim)
+        self.self_attension_1 = SelfAttentionBlock(128)
         self.cross_attn_2 = CrossAttentionMultiHead(txt_emb_dim, 128)
-        self.group_norm_2 = nn.GroupNorm(num_groups=32, num_channels=128, affine=True)
-        self.silu_2 = nn.SiLU()
 
         self.unet_dec_up_conv_3 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2, padding=0,
                                                      output_padding=0)  # правильно
-        self.unet_dec_deconv_5 = UNetDecBlock(64 + 64, 64, time_emb_dim)
-        self.unet_dec_deconv_6 = UNetDecBlock(64, 64, time_emb_dim)
+        self.decoder_3 = ResNetBlock(64 + 64, 64, time_emb_dim)
+        self.self_attension_2 = SelfAttentionBlock(64)
         self.cross_attn_3 = CrossAttentionMultiHead(txt_emb_dim, 64)
-        self.group_norm_3 = nn.GroupNorm(num_groups=32, num_channels=64, affine=True)
-        self.silu_3 = nn.SiLU()
-
-        # self.final = nn.Conv2d(64, 3, kernel_size=1, padding=0,
-        #                        stride=1)  # Финальный слой (правильно)
 
         self.final = nn.Sequential(
-            nn.Conv2d(64, 3, kernel_size=1, padding=0, stride=1),
+            nn.Conv2d(64, 3, kernel_size=1),
             nn.Tanh()
         )
 
+
     def forward(self, x, text_emb, time_emb, attension_mask):
         # --- Encoder (Downsampling) ---
-        # print(time_t.device)
 
-        x = self.unet_enc_conv_1(x, time_emb)
-        x = self.unet_enc_conv_2(x, time_emb)
+        x = self.encoder_1(x, time_emb)
         x_skip_conn_1 = x
         x = self.pool_1(x)
 
-        x = self.unet_enc_conv_3(x, time_emb)
-        x = self.unet_enc_conv_4(x, time_emb)
+        x = self.encoder_2(x, time_emb)
         x_skip_conn_2 = x
         x = self.pool_2(x)
 
-        x = self.unet_enc_conv_5(x, time_emb)
-        x = self.unet_enc_conv_6(x, time_emb)
+        x = self.encoder_3(x, time_emb)
         x_skip_conn_3 = x
         x = self.pool_3(x)
 
@@ -227,41 +388,20 @@ class MyUNet(nn.Module):
 
         # это правильный порядок блока!!!
         x = self.unet_dec_up_conv_1(x)
-        x_cat_1 = torch.cat([x, x_skip_conn_3], dim=1)
-        x = self.unet_dec_deconv_1(x_cat_1, time_emb)
-        x = self.unet_dec_deconv_2(x, time_emb)
-        x = self.cross_attn_1(x, text_emb, attension_mask)
-        x = self.group_norm_1(x)
-        x = self.silu_1(x)
+        x = torch.cat([x, x_skip_conn_3], dim=1)
+        x = self.decoder_1(x, time_emb)
+        # x = self.cross_attn_1(x, text_emb, attension_mask)
 
         x = self.unet_dec_up_conv_2(x)
-        x_cat_2 = torch.cat([x, x_skip_conn_2], dim=1)
-        x = self.unet_dec_deconv_3(x_cat_2, time_emb)
-        x = self.unet_dec_deconv_4(x, time_emb)
+        x = torch.cat([x, x_skip_conn_2], dim=1)
+        x = self.decoder_2(x, time_emb)
+        x = self.self_attension_1(x)
         x = self.cross_attn_2(x, text_emb, attension_mask)
-        x = self.group_norm_2(x)
-        x = self.silu_2(x)
 
         x = self.unet_dec_up_conv_3(x)
-        x_cat_3 = torch.cat([x, x_skip_conn_1], dim=1)
-        x = self.unet_dec_deconv_5(x_cat_3, time_emb)
-        x = self.unet_dec_deconv_6(x, time_emb)
-        x = self.cross_attn_3(x, text_emb, attension_mask)
-        x = self.group_norm_3(x)
-        x = self.silu_3(x)
+        x = torch.cat([x, x_skip_conn_1], dim=1)
+        x = self.decoder_3(x, time_emb)
+        # x = self.self_attension_2(x)
 
         x = self.final(x)
-
         return x
-
-
-def show_image(tensor_img):
-    """ Визуализация тензора изображения """
-    # img = tensor_img.cpu().detach().numpy()
-    img = tensor_img.cpu().detach().numpy().transpose(1, 2, 0)  # Приводим к (H, W, C)
-    img = (img - img.min()) / (
-            img.max() - img.min())  # Нормализация к [0,1] (matplotlib ждёт данные в формате [0, 1], другие не примет)
-    plt.imshow(img)
-    plt.axis("off")  # Убираем оси
-    plt.show()
-    plt.pause(3600)
