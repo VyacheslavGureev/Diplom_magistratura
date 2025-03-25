@@ -7,8 +7,42 @@ from sklearn.decomposition import PCA, TruncatedSVD
 import os
 from PIL import Image
 
-from torchvision import transforms
+from torchvision import transforms, datasets
 import models.hyperparams as hyperparams
+
+
+
+
+# Текстовые описания для цифр
+TEXT_DESCRIPTIONS = {
+    0: "Это цифра ноль",
+    1: "Изображена единица",
+    2: "Нарисована цифра два",
+    3: "На картинке цифра три",
+    4: "Четыре, написанное от руки",
+    5: "Это пятерка",
+    6: "Цифра шесть, нарисованная от руки",
+    7: "На изображении семерка",
+    8: "Нарисована цифра восемь",
+    9: "Рукописная девятка"
+}
+
+
+class MNISTTextDataset(Dataset):
+    def __init__(self, root, train=True, transform=None):
+        self.mnist = datasets.MNIST(root=root, train=train, download=True, transform=transform)
+
+    def __len__(self):
+        return len(self.mnist)
+
+    def __getitem__(self, idx):
+        image, label = self.mnist[idx]  # Получаем картинку и её метку (0-9)
+        text = TEXT_DESCRIPTIONS[label]  # Берем описание цифры
+        return image, text
+
+
+
+
 
 
 
@@ -109,6 +143,39 @@ def create_dataset(image_folder, captions_file):
         max_len_tokens=hyperparams.MAX_LEN_TOKENS
     )
     return dataset
+
+
+# --- Создание датасета для обучения ---
+def create_dataset_mnist():
+    transform = transforms.Compose([
+        transforms.Resize((hyperparams.IMG_SIZE, hyperparams.IMG_SIZE)),  # Приводим к IMG_SIZExIMG_SIZE
+        transforms.ToTensor(),  # Переводим в тензор (C, H, W)
+        transforms.Normalize(mean=[0.5], std=[0.5])  # Нормализация
+    ])
+
+    # Загружаем CLIP
+    tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
+    text_encoder = CLIPTextModel.from_pretrained("openai/clip-vit-base-patch32")
+
+    # # Создаём датасет
+    # dataset = MNISTTextDataset(
+    #     transform=transform,
+    #     tokenizer=tokenizer,
+    #     text_encoder=text_encoder,
+    #     max_len_tokens=hyperparams.MAX_LEN_TOKENS
+    # )
+
+    dataset = MNISTTextDataset(root="./data", train=True, transform=transform)
+
+    # Проверим
+    image, text = dataset[0]
+    print(text)  # Например: "Это цифра ноль"
+
+
+
+    return dataset
+
+
 
 
 # def reduce_embedding_linear(text_emb, reduced_dim):

@@ -26,14 +26,18 @@ def neural_func():
     # with open('datas/cifar-10-batches-py/data_batch_1', 'rb') as fo:
     #     dict = pickle.load(fo, encoding='bytes')
 
+    dataset = dc.create_dataset_mnist()
+    print('test')
 
 
+
+    return
 
 
     # mode = 'img'  #
-    mode = 'create_train_test_save'  #
+    # mode = 'create_train_test_save'  #
     # mode = 'load_train_test_save'  #
-    # mode = 'load_gen'  #
+    mode = 'load_gen'  #
     # mode = 'debug'  #
 
 
@@ -49,9 +53,9 @@ def neural_func():
         em = model_manager.load_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR, hyperparams.CURRENT_MODEL_NAME,
                                                          device)
         print('Загрузка завершена!')
-        text = 'Girl .'
+        text = 'Cat .'
         i = model_manager.get_img_from_text(em, text, device)
-        neural.show_image(i[5])
+        model_manager.show_image(i[5])
     else:
         # dataset = dc.create_dataset("datas/Flickr8k/Images/", "datas/Flickr8k/captions/captions.txt")
         # ed = model_manager.create_dataloaders(dataset, 0.75, 0.14)

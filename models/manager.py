@@ -199,8 +199,6 @@ class ModelManager():
 
         model.train()  # Включаем режим обучения
 
-        # a, b, a_bar = self.get_coeffs(device)
-
         loss = None
         i = 0
         start_time_ep = time.time()
@@ -299,7 +297,7 @@ class ModelManager():
                     device), attention_mask.to(device)
 
                 t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
-                time_emb = self.get_time_embedding(t, hyperparams.TIME_EMB_DIM, device)
+                time_emb = self.get_time_embedding(t, hyperparams.TIME_EMB_DIM)
 
                 xt = self.forward_diffusion(images, t).to(device)  # добавляем шум
                 predicted_noise = model(xt, text_embs, time_emb, attention_mask)
@@ -370,13 +368,7 @@ class ModelManager():
         # Инициализация случайного шума (начало процесса)
         x_t = torch.randn(hyperparams.BATCH_SIZE, 3, hyperparams.IMG_SIZE, hyperparams.IMG_SIZE).to(
             device)  # (B, C, H, W)
-        a, b, a_bar = self.get_coeffs(device)
 
-        # beta = (torch.linspace(0.0001, 0.008, hyperparams.T)).to(device)  # Линейно возрастающие b_t
-        # alpha = 1 - beta  # a_t
-        # alphas_bar = torch.cumprod(alpha, dim=0).to(device)  # Накапливаемый коэффициент a_t (T,)
-        # alpha = alpha.to(device)
-        # alphas_bar = torch.cumprod(alpha, dim=0).to(device)  # Накапливаемый коэффициент a_t (T,)
         t_tensor = torch.arange(0, hyperparams.T, 1, dtype=torch.int)
         t_tensor = t_tensor.unsqueeze(1)
         t_tensor = t_tensor.expand(hyperparams.T, hyperparams.BATCH_SIZE)
@@ -386,27 +378,30 @@ class ModelManager():
 
         model.eval()
         with torch.no_grad():
+
+            i = 0
             for step in tqdm(range(hyperparams.T - 1, -1, -1), colour='white'):
                 # t_tensor = torch.full((hyperparams.BATCH_SIZE,), step).to(device) # (B, )
                 # Получаем предсказание шума на текущем шаге
                 # print(t_tensor[step])
 
-                t_i = self.get_time_emd(t_tensor[step], hyperparams.TIME_EMB_DIM, device)
+                t_i = self.get_time_embedding(t_tensor[step], hyperparams.TIME_EMB_DIM)
                 t_i = t_i.to(device)
 
                 predicted_noise = model(x_t, text_embedding, t_i, attn_mask)
 
-                # self.show_image(predicted_noise[5])
+                # if i == 500:
+                    # self.show_image(predicted_noise[5])
 
-                x_t = (1 / torch.sqrt(a[step])) * (
-                            x_t - ((1 - a[step]) / (torch.sqrt(1 - a_bar[step]))) * predicted_noise)
+                x_t = (1 / torch.sqrt(self.a[step])) * (
+                            x_t - ((1 - self.a[step]) / (torch.sqrt(1 - self.a_bar[step]))) * predicted_noise)
 
                 # Можно добавить дополнительные шаги, такие как коррекция или уменьшение шума
                 # Например, можно добавить немного шума обратно с каждым шагом:
                 # if step > 0:
                 #     noise = torch.randn_like(x_t).to(device) * (1 - alpha_t).sqrt()
                 #     x_t += noise
-
+                i += 1
         # Вернем восстановленное изображение
         return x_t
 
