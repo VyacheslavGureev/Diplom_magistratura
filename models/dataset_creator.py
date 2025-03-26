@@ -11,39 +11,55 @@ from torchvision import transforms, datasets
 import models.hyperparams as hyperparams
 
 
-
-
-# Текстовые описания для цифр
-TEXT_DESCRIPTIONS = {
-    0: "Это цифра ноль",
-    1: "Изображена единица",
-    2: "Нарисована цифра два",
-    3: "На картинке цифра три",
-    4: "Четыре, написанное от руки",
-    5: "Это пятерка",
-    6: "Цифра шесть, нарисованная от руки",
-    7: "На изображении семерка",
-    8: "Нарисована цифра восемь",
-    9: "Рукописная девятка"
-}
-
-
 class MNISTTextDataset(Dataset):
-    def __init__(self, root, train=True, transform=None):
+    def __init__(self, root, train, transform, tokenizer, text_encoder, max_len_tokens):
         self.mnist = datasets.MNIST(root=root, train=train, download=True, transform=transform)
+        # Текстовые описания для цифр
+        self.TEXT_DESCRIPTIONS = {
+            0: "Это цифра ноль",
+            1: "Изображена единица",
+            2: "Нарисована цифра два",
+            3: "На картинке цифра три",
+            4: "Четыре, написанное от руки",
+            5: "Это пятерка",
+            6: "Цифра шесть, нарисованная от руки",
+            7: "На изображении семерка",
+            8: "Нарисована цифра восемь",
+            9: "Рукописная девятка"
+        }
+        self.tokenizer = tokenizer
+        self.text_encoder = text_encoder
+        self.max_len_tokens = max_len_tokens
+
+        # self.maxxxx = 0
+        # for i in self.mnist:
+        #     lab = i[1]
+        #     c = self.TEXT_DESCRIPTIONS[lab]
+        #     tokens = self.tokenizer(c, return_tensors="pt", padding=True, truncation=True)
+        #     if self.maxxxx < tokens.data['input_ids'].shape[1]:
+        #         self.maxxxx = tokens.data['input_ids'].shape[1]
+        # print(self.maxxxx)
+        # print('maxxx') # (максимальный размер кол-ва токенов для этого датасета = 36 (поэтому max_len_tokens = 50))
+
 
     def __len__(self):
         return len(self.mnist)
 
     def __getitem__(self, idx):
         image, label = self.mnist[idx]  # Получаем картинку и её метку (0-9)
-        text = TEXT_DESCRIPTIONS[label]  # Берем описание цифры
-        return image, text
-
-
-
-
-
+        caption = self.TEXT_DESCRIPTIONS[label]  # Берем описание цифры
+        # print(caption)
+        tokens = self.tokenizer(
+            caption,
+            return_tensors="pt",
+            padding="max_length",  # Делаем паддинг до max_length
+            truncation=True,  # Обрезаем слишком длинные тексты
+            max_length=self.max_len_tokens  # Устанавливаем максимальную длину
+        )
+        attention_mask = tokens['attention_mask'].squeeze(0)  # (max_length,)
+        with torch.no_grad():
+            text_emb_reduced = self.text_encoder(**tokens).last_hidden_state.squeeze(0)  # (max_length, txt_emb_dim)
+        return image, text_emb_reduced, attention_mask
 
 
 class ImageTextDataset(Dataset):
@@ -65,9 +81,6 @@ class ImageTextDataset(Dataset):
         self.max_len_tokens = max_len_tokens
         self.image_filenames = list(self.captions.keys())  # Файлы картинок
 
-        # self.text_reducer = TextEmbeddingReducer(512, hyperparams.TEXT_EMB_DIM_REDUCED)
-        # self.text_reducer = TextEmbeddingReducer(512, hyperparams.TEXT_EMB_DIM_REDUCED)
-
         # self.maxxxx = 0
         # for i in self.image_filenames:
         #     for c in self.captions[i]:
@@ -75,7 +88,7 @@ class ImageTextDataset(Dataset):
         #         if self.maxxxx < tokens.data['input_ids'].shape[1]:
         #             self.maxxxx = tokens.data['input_ids'].shape[1]
         # print(self.maxxxx)
-        # print('maxxx')
+        # print('maxxx') (максимальный размер кол-ва токенов для этого датасета = 43 (поэтому max_len_tokens = 50))
 
     def __len__(self):
         return len(self.image_filenames)
@@ -146,37 +159,24 @@ def create_dataset(image_folder, captions_file):
 
 
 # --- Создание датасета для обучения ---
-def create_dataset_mnist():
+def create_dataset_mnist(folder, train_flag):
     transform = transforms.Compose([
         transforms.Resize((hyperparams.IMG_SIZE, hyperparams.IMG_SIZE)),  # Приводим к IMG_SIZExIMG_SIZE
         transforms.ToTensor(),  # Переводим в тензор (C, H, W)
-        transforms.Normalize(mean=[0.5], std=[0.5])  # Нормализация
+        transforms.Normalize(mean=[0.5], std=[0.5])  # Нормализация (один канал)
     ])
 
     # Загружаем CLIP
     tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
     text_encoder = CLIPTextModel.from_pretrained("openai/clip-vit-base-patch32")
 
-    # # Создаём датасет
-    # dataset = MNISTTextDataset(
-    #     transform=transform,
-    #     tokenizer=tokenizer,
-    #     text_encoder=text_encoder,
-    #     max_len_tokens=hyperparams.MAX_LEN_TOKENS
-    # )
-
-    dataset = MNISTTextDataset(root="./data", train=True, transform=transform)
-
-    # Проверим
-    image, text = dataset[0]
-    print(text)  # Например: "Это цифра ноль"
-
-
-
+    dataset = MNISTTextDataset(root=folder,
+                               train=train_flag,
+                               transform=transform,
+                               tokenizer=tokenizer,
+                               text_encoder=text_encoder,
+                               max_len_tokens=hyperparams.MAX_LEN_TOKENS)
     return dataset
-
-
-
 
 # def reduce_embedding_linear(text_emb, reduced_dim):
 #     text_reducer = TextEmbeddingReducer(512, reduced_dim)

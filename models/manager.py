@@ -1,6 +1,7 @@
 import math
 import time
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -15,56 +16,56 @@ import models.encapsulated_data as encapsulated_data
 import models.nn_model as nn_model
 
 
-class DiffusionReverseProcess:
-    r"""
-
-    Reverse Process class as described in the
-    paper "Denoising Diffusion Probabilistic Models"
-
-    """
-
-    def __init__(self,
-                 num_time_steps=1000,
-                 beta_start=1e-4,
-                 beta_end=0.02
-                 ):
-
-        # Precomputing beta, alpha, and alpha_bar for all t's.
-        self.b = torch.linspace(beta_start, beta_end, num_time_steps)  # b -> beta
-        self.a = 1 - self.b  # a -> alpha
-        self.a_bar = torch.cumprod(self.a, dim=0)  # a_bar = alpha_bar
-
-    def sample_prev_timestep(self, xt, noise_pred, t):
-
-        r""" Sample x_(t-1) given x_t and noise predicted
-             by model.
-
-             :param xt: Image tensor at timestep t of shape -> B x C x H x W
-             :param noise_pred: Noise Predicted by model of shape -> B x C x H x W
-             :param t: Current time step
-
-        """
-
-        # Original Image Prediction at timestep t
-        x0 = xt - (torch.sqrt(1 - self.a_bar.to(xt.device)[t]) * noise_pred)
-        x0 = x0 / torch.sqrt(self.a_bar.to(xt.device)[t])
-        x0 = torch.clamp(x0, -1., 1.)
-
-        # mean of x_(t-1)
-        mean = (xt - ((1 - self.a.to(xt.device)[t]) * noise_pred) / (torch.sqrt(1 - self.a_bar.to(xt.device)[t])))
-        mean = mean / (torch.sqrt(self.a.to(xt.device)[t]))
-
-        # only return mean
-        if t == 0:
-            return mean, x0
-
-        else:
-            variance = (1 - self.a_bar.to(xt.device)[t - 1]) / (1 - self.a_bar.to(xt.device)[t])
-            variance = variance * self.b.to(xt.device)[t]
-            sigma = variance ** 0.5
-            z = torch.randn(xt.shape).to(xt.device)
-
-            return mean + sigma * z, x0
+# class DiffusionReverseProcess:
+#     r"""
+#
+#     Reverse Process class as described in the
+#     paper "Denoising Diffusion Probabilistic Models"
+#
+#     """
+#
+#     def __init__(self,
+#                  num_time_steps=1000,
+#                  beta_start=1e-4,
+#                  beta_end=0.02
+#                  ):
+#
+#         # Precomputing beta, alpha, and alpha_bar for all t's.
+#         self.b = torch.linspace(beta_start, beta_end, num_time_steps)  # b -> beta
+#         self.a = 1 - self.b  # a -> alpha
+#         self.a_bar = torch.cumprod(self.a, dim=0)  # a_bar = alpha_bar
+#
+#     def sample_prev_timestep(self, xt, noise_pred, t):
+#
+#         r""" Sample x_(t-1) given x_t and noise predicted
+#              by model.
+#
+#              :param xt: Image tensor at timestep t of shape -> B x C x H x W
+#              :param noise_pred: Noise Predicted by model of shape -> B x C x H x W
+#              :param t: Current time step
+#
+#         """
+#
+#         # Original Image Prediction at timestep t
+#         x0 = xt - (torch.sqrt(1 - self.a_bar.to(xt.device)[t]) * noise_pred)
+#         x0 = x0 / torch.sqrt(self.a_bar.to(xt.device)[t])
+#         x0 = torch.clamp(x0, -1., 1.)
+#
+#         # mean of x_(t-1)
+#         mean = (xt - ((1 - self.a.to(xt.device)[t]) * noise_pred) / (torch.sqrt(1 - self.a_bar.to(xt.device)[t])))
+#         mean = mean / (torch.sqrt(self.a.to(xt.device)[t]))
+#
+#         # only return mean
+#         if t == 0:
+#             return mean, x0
+#
+#         else:
+#             variance = (1 - self.a_bar.to(xt.device)[t - 1]) / (1 - self.a_bar.to(xt.device)[t])
+#             variance = variance * self.b.to(xt.device)[t]
+#             sigma = variance ** 0.5
+#             z = torch.randn(xt.shape).to(xt.device)
+#
+#             return mean + sigma * z, x0
 
 
 class ModelManager():
@@ -72,11 +73,14 @@ class ModelManager():
     def __init__(self, device):
         self.device = device
 
-        beta_start = 1e-4
-        beta_end = 0.02
-        self.create_diff_sheduler(hyperparams.T, beta_start, beta_end)
+        # beta_start = 1e-4
+        # beta_end = 0.02
+        # self.create_diff_sheduler_linear(hyperparams.T, beta_start, beta_end)
 
-    def create_diff_sheduler(self, num_time_steps, beta_start, beta_end):
+        s = 0.008
+        self.create_diff_scheduler_cosine(hyperparams.T, s)
+
+    def create_diff_sheduler_linear(self, num_time_steps, beta_start, beta_end):
         # Precomputing beta, alpha, and alpha_bar for all t's.
         self.b = torch.linspace(beta_start, beta_end, num_time_steps)  # b -> beta
         self.a = 1 - self.b  # a -> alpha
@@ -84,6 +88,33 @@ class ModelManager():
         self.b = self.b.to(self.device)
         self.a = self.a.to(self.device)
         self.a_bar = self.a_bar.to(self.device)
+
+    def create_diff_scheduler_cosine(self, T, s):
+        """Генерирует b_t на основе косинусного расписания"""
+        """Генерирует b_t на основе косинусного расписания"""
+        t = torch.linspace(0, T, steps=T + 1)  # Временные шаги 0...T
+        f_t = torch.cos((t / T + s) / (1 + s) * (np.pi / 2)) ** 2  # Косинусная формула
+        alpha_bar = f_t / f_t[0]  # Нормируем, чтобы α̅_T = 1
+        beta = 1 - alpha_bar[1:] / alpha_bar[:-1]  # Вычисляем b_t
+        self.b = torch.clip(beta, 0.0001, 0.1)  # Ограничиваем b_t
+        self.a = 1 - self.b
+        self.a_bar = torch.cumprod(self.a, dim=0)
+        self.b = self.b.to(self.device)
+        self.a = self.a.to(self.device)
+        self.a_bar = self.a_bar.to(self.device)
+
+        # print(f"Min beta: {self.b.min().item()}")
+        # print(f"Max beta: {self.b.max().item()}")
+        # import matplotlib.pyplot as plt
+        # T = 1000
+        # s = 0.008
+        # plt.plot(self.b.cpu().numpy(), label="Beta")
+        # plt.xlabel("Timestep")
+        # plt.ylabel("Beta")
+        # plt.title("Cosine Schedule for Beta")
+        # plt.legend()
+        # plt.show()
+        # plt.pause(3600)
 
     # --- Создание модели ---
     def create_model(self):
@@ -104,6 +135,22 @@ class ModelManager():
                                  collate_fn=self.collate_fn)  # Тестовый датасет можно не перемешивать
         e_loader = encapsulated_data.EncapsulatedDataloaders(train_loader, val_loader, test_loader)
         return e_loader
+
+    # def create_dataloaders_mnist(self, dataset, train_size_percent, val_size_percent):
+    #     # Разделяем датасеты
+    #     train_size = int(train_size_percent * len(dataset))
+    #     val_size = int(val_size_percent * len(dataset))
+    #     test_size = len(dataset) - train_size - val_size
+    #     train_dataset, val_dataset, test_dataset = random_split(dataset,
+    #                                                             [train_size, val_size, test_size])
+    #     train_loader = DataLoader(train_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=True,
+    #                               collate_fn=self.collate_fn)
+    #     val_loader = DataLoader(val_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=False,
+    #                             collate_fn=self.collate_fn)
+    #     test_loader = DataLoader(test_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=False,
+    #                              collate_fn=self.collate_fn)  # Тестовый датасет можно не перемешивать
+    #     e_loader = encapsulated_data.EncapsulatedDataloaders(train_loader, val_loader, test_loader)
+    #     return e_loader
 
     def collate_fn(self, batch):
         if len(batch) % hyperparams.BATCH_SIZE != 0:
@@ -154,39 +201,27 @@ class ModelManager():
 
         return t_emb
 
-    # def get_time_emd(self, t, embed_dim, device):
-    #     """t — это тензор со значениями [0, T], размерность (B,)"""
-    #     half_dim = embed_dim // 2
-    #     # freqs = torch.exp(-torch.arange(half_dim, dtype=torch.float32) * (torch.log(torch.tensor(10000.0)) / half_dim))
-    #     freqs = torch.exp(
-    #         -torch.arange(half_dim, dtype=torch.float32) * (torch.log(torch.tensor(10000.0)) / half_dim)).to(
-    #         device)
-    #     angles = t[:, None] * freqs[None, :]
-    #     time_embedding = torch.cat([torch.sin(angles), torch.cos(angles)], dim=-1)
-    #     return time_embedding  # (B, embed_dim)
-
-    # def get_coeffs(self, device):
-    #     beta = torch.linspace(0.0001, 0.008, hyperparams.T)  # Линейно возрастающие b_t
-    #     alpha = 1 - beta  # a_t
-    #     alphas_bar = torch.cumprod(alpha, dim=0).to(device)  # Накапливаемый коэффициент a_t (T,)
-    #     alpha, beta, alphas_bar = alpha.to(device), beta.to(device), alphas_bar.to(device)
-    #     return alpha, beta, alphas_bar
-
-    def train_model(self, e_model: encapsulated_data.EncapsulatedModel, e_loader, epochs):
+    def train_model(self, e_model: encapsulated_data.EncapsulatedModel,
+                    e_loader: encapsulated_data.EncapsulatedDataloaders, epochs):
         for epoch in range(epochs):
-            train_loss = self.training_model(e_model, e_loader)
-            val_loss = self.validating_model(e_model, e_loader)
+            running_train_loss = self.training_model(e_model, e_loader)
+            running_val_loss = self.validating_model(e_model, e_loader)
+            print(
+                f"Epoch {epoch + 1}, Train Loss: {running_train_loss / len(e_loader.train)}, Val Loss: {running_val_loss / len(e_loader.val)}")
 
             hist = e_model.history
             last_epoch = max(hist.keys())
             last_epoch += 1
 
             hist[last_epoch] = {}
-            hist[last_epoch]['train_loss'] = train_loss.item()
-            hist[last_epoch]['val_loss'] = val_loss.item()
+            hist[last_epoch]['train_loss'] = running_train_loss / len(e_loader.train)
+            hist[last_epoch]['val_loss'] = running_val_loss / len(e_loader.val)
             e_model.history = hist
 
-            print(f"Epoch {epoch + 1}, Train Loss: {train_loss.item()}, Val Loss: {val_loss.item()}")
+            # hist[last_epoch] = {}
+            # hist[last_epoch]['train_loss'] = train_loss.item()
+            # hist[last_epoch]['val_loss'] = val_loss.item()
+            # e_model.history = hist
 
     def training_model(self, e_model: encapsulated_data.EncapsulatedModel,
                        e_loader: encapsulated_data.EncapsulatedDataloaders):
@@ -200,6 +235,9 @@ class ModelManager():
         model.train()  # Включаем режим обучения
 
         loss = None
+        running_loss = 0.0
+        log_interval = 50  # Выводим лосс каждые 50 батчей
+
         i = 0
         start_time_ep = time.time()
         for images, text_embs, attention_mask in train_loader:
@@ -221,6 +259,7 @@ class ModelManager():
 
             loss_train = criterion(predicted_noise, torch.randn_like(xt))  # сравниваем с реальным шумом
             loss = loss_train
+            running_loss += loss_train.item()
             loss_train.backward()
 
             optimizer.step()
@@ -228,9 +267,13 @@ class ModelManager():
             i += 1
             end_time = time.time()
             print(f"Процентов {(i / len(train_loader)) * 100}, {end_time - start_time}")
+
+            if i % log_interval == 0:
+                print(f"Batch: {i}, Current Loss: {loss.item():.4f}")
+
         end_time_ep = time.time()
         print(f'Трен. заверш. {end_time_ep - start_time_ep}')
-        return loss
+        return running_loss
 
     def validating_model(self, e_model: encapsulated_data.EncapsulatedModel,
                          e_loader: encapsulated_data.EncapsulatedDataloaders):
@@ -243,7 +286,10 @@ class ModelManager():
         model.eval()  # Переключаем в режим валидации
 
         # Оценка на валидационном датасете
+        running_loss = 0.0
+        log_interval = 50  # Выводим лосс каждые 50 батчей
         loss = None
+
         i = 0
         with torch.no_grad():
             start_time_ep = time.time()
@@ -264,13 +310,18 @@ class ModelManager():
 
                 loss_val = criterion(predicted_noise, torch.randn_like(xt))
                 loss = loss_val
+                running_loss += loss_val.item()
 
                 i += 1
                 end_time = time.time()
                 print(f"Процентов {(i / len(val_loader)) * 100}, {end_time - start_time}")
+
+                if i % log_interval == 0:
+                    print(f"Batch: {i}, Current Loss: {loss.item():.4f}")
+
             end_time_ep = time.time()
             print(f'Вал. заверш. {end_time_ep - start_time_ep}')
-        return loss
+        return running_loss
 
     def test_model(self, e_model: encapsulated_data.EncapsulatedModel,
                    e_loader: encapsulated_data.EncapsulatedDataloaders):
@@ -335,7 +386,7 @@ class ModelManager():
         checkpoint = torch.load(model_filepath)
         e_model = encapsulated_data.EncapsulatedModel()
 
-        model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM, device).to(device)
+        model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM).to(device)
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer = optim.Adam(model.parameters(), lr=hyperparams.LR)
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -366,8 +417,12 @@ class ModelManager():
     # Функция для reverse diffusion
     def reverse_diffusion(self, model, text_embedding, attn_mask, device):
         # Инициализация случайного шума (начало процесса)
-        x_t = torch.randn(hyperparams.BATCH_SIZE, 3, hyperparams.IMG_SIZE, hyperparams.IMG_SIZE).to(
+        orig_channels = 1
+
+        x_t = torch.randn(hyperparams.BATCH_SIZE, orig_channels, hyperparams.IMG_SIZE, hyperparams.IMG_SIZE).to(
             device)  # (B, C, H, W)
+
+        self.show_image(x_t[5])
 
         t_tensor = torch.arange(0, hyperparams.T, 1, dtype=torch.int)
         t_tensor = t_tensor.unsqueeze(1)
@@ -378,7 +433,6 @@ class ModelManager():
 
         model.eval()
         with torch.no_grad():
-
             i = 0
             for step in tqdm(range(hyperparams.T - 1, -1, -1), colour='white'):
                 # t_tensor = torch.full((hyperparams.BATCH_SIZE,), step).to(device) # (B, )
@@ -391,10 +445,10 @@ class ModelManager():
                 predicted_noise = model(x_t, text_embedding, t_i, attn_mask)
 
                 # if i == 500:
-                    # self.show_image(predicted_noise[5])
+                self.show_image(predicted_noise[5])
 
                 x_t = (1 / torch.sqrt(self.a[step])) * (
-                            x_t - ((1 - self.a[step]) / (torch.sqrt(1 - self.a_bar[step]))) * predicted_noise)
+                        x_t - ((1 - self.a[step]) / (torch.sqrt(1 - self.a_bar[step]))) * predicted_noise)
 
                 # Можно добавить дополнительные шаги, такие как коррекция или уменьшение шума
                 # Например, можно добавить немного шума обратно с каждым шагом:

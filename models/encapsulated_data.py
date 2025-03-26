@@ -13,7 +13,7 @@ class EncapsulatedModel:
         # Создание модели с нуля
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(self.device)
-        self.model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM, self.device).to(self.device)
+        self.model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM).to(self.device)
         self.optimizer = optim.Adam(self.model.parameters(), lr=hyperparams.LR)
         self.criterion = nn.MSELoss()
         self.history = {0: {'train_loss': math.inf, 'val_loss': math.inf}}
@@ -21,6 +21,7 @@ class EncapsulatedModel:
 
 class EncapsulatedDataloaders:
     def __init__(self, train, val, test):
+        # Данные про датасет в одном месте
         self.train = train
         self.val = val
         self.test = test
