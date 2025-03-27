@@ -17,6 +17,23 @@ import models.encapsulated_data as encapsulated_data
 import models.nn_model as nn_model
 
 
+class EarlyStopping:
+    def __init__(self, patience=3, min_delta=1e-4):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.best_loss = float('inf')
+        self.counter = 0
+
+    def __call__(self, val_loss):
+        if val_loss < self.best_loss - self.min_delta:
+            self.best_loss = val_loss
+            self.counter = 0  # Сбрасываем patience
+        else:
+            self.counter += 1  # Увеличиваем patience
+
+        return self.counter >= self.patience  # True = остановка
+
+
 # class DiffusionReverseProcess:
 #     r"""
 #
@@ -151,7 +168,7 @@ class ModelManager():
     def forward_diffusion(self, x0, t, noise=None):
         """ Добавляет стандартный гауссовский шум к изображению """
         if noise is None:
-            noise = torch.randn_like(x0)
+            noise = torch.randn_like(x0, requires_grad=False)
         at = self.a_bar[t][:, None, None, None]
         xt = torch.sqrt(at) * x0 + torch.sqrt(1 - at) * noise
         return xt
@@ -192,13 +209,19 @@ class ModelManager():
         optimizer = e_model.optimizer
 
         # step_scheduler = lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5) # MNIST очень большой, поэтому каждый 5 эпох уменьшаем в 2 раза
-        plateau_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
+        plateau_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=4)
+
+        early_stopping = EarlyStopping(patience=3)
 
         for epoch in range(epochs):
             running_train_loss = self.training_model(e_model, e_loader)
             running_val_loss = self.validating_model(e_model, e_loader)
+
+            avg_loss_train = running_train_loss / len(e_loader.train)
+            avg_loss_val = running_val_loss / len(e_loader.val)
+
             print(
-                f"Epoch {epoch + 1}, Train Loss: {running_train_loss / len(e_loader.train)}, Val Loss: {running_val_loss / len(e_loader.val)}")
+                f"Epoch {epoch + 1}, Train Loss: {avg_loss_train}, Val Loss: {avg_loss_val}")
 
             hist = e_model.history
             last_epoch = max(hist.keys())
@@ -209,8 +232,14 @@ class ModelManager():
             hist[last_epoch]['val_loss'] = running_val_loss / len(e_loader.val)
             e_model.history = hist
 
+            if early_stopping(avg_loss_val):
+                print("Ранняя остановка! Обучение завершено.")
+                break  # Прерываем обучение
+
             # step_scheduler.step()  # Уменьшает каждые N эпох
-            plateau_scheduler.step(running_val_loss / len(e_loader.val))  # Дополнительно уменьшает, если застряли
+            plateau_scheduler.step(avg_loss_val)  # Дополнительно уменьшает, если застряли
+
+
 
     def training_model(self, e_model: encapsulated_data.EncapsulatedModel,
                        e_loader: encapsulated_data.EncapsulatedDataloaders):
@@ -387,7 +416,7 @@ class ModelManager():
 
         model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM).to(device)
         model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer = optim.Adam(model.parameters(), lr=hyperparams.LR)
+        optimizer = optim.Adam(model.parameters(), lr=hyperparams.LR, weight_decay=1e-4)
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         history = checkpoint.get('history', {0: {'train_loss': math.inf,
                                                  'val_loss': math.inf}})  # Если модель была обучена, но во время её обучения ещё не был реализован функционал сохранения истории обучения
@@ -405,45 +434,32 @@ class ModelManager():
     def reverse_diffusion(self, model, ema, text_embedding, attn_mask, device):
         # Инициализация случайного шума (начало процесса)
         orig_channels = 1
-
         x_t = torch.randn(hyperparams.BATCH_SIZE, orig_channels, hyperparams.IMG_SIZE, hyperparams.IMG_SIZE).to(
             device)  # (B, C, H, W)
-
-        self.show_image(x_t[5])
-
+        # self.show_image(x_t[5])
         t_tensor = torch.arange(0, hyperparams.T, 1, dtype=torch.int)
         t_tensor = t_tensor.unsqueeze(1)
         t_tensor = t_tensor.expand(hyperparams.T, hyperparams.BATCH_SIZE)
         t_tensor = t_tensor.to(device)
-        # t_tensor = torch.full((hyperparams.BATCH_SIZE,), step).to(device)  # (B, )
         # Запускаем процесс reverse diffusion
-
         ema.ema_model.eval()
         model.eval()
         with torch.no_grad():
             i = 0
             for step in tqdm(range(hyperparams.T - 1, -1, -1), colour='white'):
-                # t_tensor = torch.full((hyperparams.BATCH_SIZE,), step).to(device) # (B, )
-                # Получаем предсказание шума на текущем шаге
-                # print(t_tensor[step])
-
                 t_i = self.get_time_embedding(t_tensor[step], hyperparams.TIME_EMB_DIM)
                 t_i = t_i.to(device)
-
-                # predicted_noise = model(x_t, text_embedding, t_i, attn_mask)
-                predicted_noise = ema.ema_model(x_t, text_embedding, t_i, attn_mask)
-
+                predicted_noise = model(x_t, text_embedding, t_i, attn_mask)
+                # predicted_noise = ema.ema_model(x_t, text_embedding, t_i, attn_mask)
                 # if i == 500:
-                self.show_image(predicted_noise[5])
-
+                # self.show_image(predicted_noise[5])
                 x_t = (1 / torch.sqrt(self.a[step])) * (
                         x_t - ((1 - self.a[step]) / (torch.sqrt(1 - self.a_bar[step]))) * predicted_noise)
-
                 # Можно добавить дополнительные шаги, такие как коррекция или уменьшение шума
                 # Например, можно добавить немного шума обратно с каждым шагом:
-                # if step > 0:
-                #     noise = torch.randn_like(x_t).to(device) * (1 - alpha_t).sqrt()
-                #     x_t += noise
+                if step > 0:  # Добавляем случайный шум на всех шагах, кроме последнего
+                    noise = torch.randn_like(x_t).to(device) * (1 - self.a[step]).sqrt()
+                    x_t += noise
                 i += 1
         # Вернем восстановленное изображение
         return x_t

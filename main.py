@@ -64,7 +64,7 @@ def neural_func():
         em = model_manager.load_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR, hyperparams.CURRENT_MODEL_NAME,
                                                          device)
         print('Загрузка завершена!')
-        text = 'Пять'
+        text = 'Единица'
         i = model_manager.get_img_from_text(em, text, device)
         model_manager.show_image(i[1])
     else:
@@ -114,7 +114,7 @@ def neural_func():
             images, text_embs, attention_mask = next(iter(ed.test))
             images = images.to(device)
             t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
-            t = torch.tensor([800])
+            t = torch.tensor([450])
             t = t.expand(hyperparams.BATCH_SIZE)
             t = t.to(device)
             xt = model_manager.forward_diffusion(images, t).to(device)  # добавляем шум

@@ -20,7 +20,7 @@ class EncapsulatedModel:
 
         self.ema = EMA(self.model, self.device)
 
-        self.optimizer = optim.Adam(self.model.parameters(), lr=hyperparams.LR)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=hyperparams.LR, weight_decay=1e-4)
         self.criterion = nn.MSELoss()
         self.history = {0: {'train_loss': math.inf, 'val_loss': math.inf}}
 

@@ -11,7 +11,7 @@ CURRENT_MODEL_DIR = 'trained/'
 T = 1000  # Количество шагов в диффузии
 BATCH_SIZE = 16
 LR = 0.0001
-EPOCHS = 3
+EPOCHS = 1
 TIME_EMB_DIM = 256
 
 # --- Гиперпараметры для дебага ---
