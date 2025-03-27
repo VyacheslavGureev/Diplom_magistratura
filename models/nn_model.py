@@ -16,6 +16,8 @@ class CrossAttentionMultiHead(nn.Module):
         self.Wv = nn.Linear(text_emb_dim, channels_current_layer)  # Value из текста
 
         self.norm = nn.GroupNorm(num_groups=8, num_channels=channels_current_layer, affine=True)
+        self.attn_dropout = nn.Dropout(p=0.1)
+        self.output_dropout= nn.Dropout(p=0.1)
 
         # if hyperparams.BATCH_SIZE >= 32:
         #     self.norm = nn.BatchNorm2d(num_features=channels_current_layer)
@@ -40,7 +42,9 @@ class CrossAttentionMultiHead(nn.Module):
         attn_scores = attn_scores.masked_fill(attention_mask == 0, float('-inf'))
 
         attn_probs = torch.softmax(attn_scores, dim=-1)
+        attn_probs = self.attn_dropout(attn_probs)
         attn_out = torch.matmul(attn_probs, V)  # (B, num_heads, H*W, C//num_heads)
+        attn_out = self.output_dropout(attn_out)
         # Объединяем головы
         attn_out = attn_out.transpose(1, 2).reshape(B, H * W, C)  # (B, H*W, C)
         attn_out = attn_out.permute(0, 2, 1).view(B, C, H,
@@ -68,13 +72,14 @@ class SelfAttentionBlock(nn.Module):
         self.attn = nn.MultiheadAttention(
             num_channels,
             num_heads,
-            batch_first=True
+            batch_first=True,
+            dropout=0.1
         )
 
     def forward(self, x):
         B, C, H, W = x.shape
         x = x.reshape(B, C, H * W)
-        x = self.g_norm(x)
+        x = self.g_norm(x) # ?
         x = x.transpose(1, 2)
         x, _ = self.attn(x, x, x)
         x = x.transpose(1, 2).reshape(B, C, H, W)
@@ -120,11 +125,16 @@ class ResNetBlock(nn.Module):
         self.silu_1 = nn.SiLU()
         self.silu_2 = nn.SiLU()
 
+        self.dropout = nn.Dropout(p=0.1)  # 10% нейронов будут обнулены
+
     def forward(self, x, time_emb):
         x = x + self.te_block(time_emb)[:, :, None, None]
         r = self.group_norm_1(x)
         r = self.silu_1(r)
         r = self.conv_1(r)
+
+        r = self.dropout(r)
+
         r = self.group_norm_2(r)
         r = self.silu_2(r)
         r = self.conv_2(r)
@@ -144,6 +154,7 @@ class ResNetMiddleBlock(ResNetBlock):
         r = self.conv_1(r)
 
         r = self.self_attention(r)
+        r = self.dropout(r)
 
         r = self.group_norm_2(r)
         r = self.silu_2(r)
@@ -154,17 +165,17 @@ class ResNetMiddleBlock(ResNetBlock):
 
 
 class DeepBottleneck(nn.Module):
-    def __init__(self, text_emb_dim, time_emb_dim):
+    def __init__(self, in_C, out_C, text_emb_dim, time_emb_dim):
         super().__init__()
-        self.deep_block_1 = ResNetBlock(256, 512, time_emb_dim)
-        self.cross_attn_multi_head_1 = CrossAttentionMultiHead(text_emb_dim, 512)
-        self.deep_block_2 = ResNetBlock(512, 512, time_emb_dim)
+        self.deep_block_1 = ResNetBlock(in_C, out_C, time_emb_dim)
+        self.cross_attn_multi_head_1 = CrossAttentionMultiHead(text_emb_dim, out_C)
+        # self.deep_block_2 = ResNetBlock(512, 512, time_emb_dim)
 
     # здесь правильный порядок преобразований!!!
     def forward(self, x, text_emb, time_emb, attention_mask):
         x = self.deep_block_1(x, time_emb)
         x = self.cross_attn_multi_head_1(x, text_emb, attention_mask)
-        x = self.deep_block_2(x, time_emb)
+        # x = self.deep_block_2(x, time_emb)
         return x
 
 
@@ -173,46 +184,66 @@ class MyUNet(nn.Module):
         super().__init__()
 
         self.orig_img_channels = 1
+        self.channels_scale = 2 # во сколько раз делим кол-во каналов от оригинального кол-ва
         # self.orig_img_channels = 3
 
         # --- Downsampling (Сжатие) ---
-        # self.single_conv = nn.Conv2d(1, 64, kernel_size=3, padding=1,
+        # self.single_conv = nn.Conv2d(self.orig_img_channels, 64, kernel_size=3, padding=1,
         #                              stride=1)
 
-        self.single_conv = nn.Conv2d(self.orig_img_channels, 64, kernel_size=3, padding=1,
-                                     stride=1)
-        self.encoder_1 = ResNetBlock(64, 64, time_emb_dim)
-        self.down_conv_1 = nn.Conv2d(64, 64, kernel_size=3, padding=1,
+        self.prepare = nn.Conv2d(self.orig_img_channels, 64 // self.channels_scale, kernel_size=1, padding=0,
+                                 stride=1) # Не меняем изображение, просто подготавливаем его для дальнейшей обработки, увеличивая кол-во каналов (линейное преобразование)
+        self.encoder_1 = ResNetBlock(64 // self.channels_scale, 64 // self.channels_scale, time_emb_dim)
+        self.down_conv_1 = nn.Conv2d(64 // self.channels_scale, 64 // self.channels_scale, kernel_size=3, padding=1,
                                      stride=2)  # уменьшаем изображение в 2 раза (для диффузионок)
 
-        self.encoder_2 = ResNetMiddleBlock(64, 128, time_emb_dim)
-        self.down_conv_2 = nn.Conv2d(128, 128, kernel_size=3, padding=1,
+        self.encoder_2 = ResNetMiddleBlock(64 // self.channels_scale, 128 // self.channels_scale, time_emb_dim)
+        self.down_conv_2 = nn.Conv2d(128 // self.channels_scale, 128 // self.channels_scale, kernel_size=3, padding=1,
                                      stride=2)  # уменьшаем изображение в 2 раза (для диффузионок)
 
-        self.encoder_3 = ResNetBlock(128, 256, time_emb_dim)
-        self.down_conv_3 = nn.Conv2d(256, 256, kernel_size=3, padding=1,
+        self.encoder_3 = ResNetBlock(128 // self.channels_scale, 256 // self.channels_scale, time_emb_dim)
+        self.down_conv_3 = nn.Conv2d(256 // self.channels_scale, 256 // self.channels_scale, kernel_size=3, padding=1,
                                      stride=2)  # уменьшаем изображение в 2 раза (для диффузионок)
 
-        self.deep_bottleneck = DeepBottleneck(txt_emb_dim, time_emb_dim)
+        self.deep_bottleneck = DeepBottleneck(256 // self.channels_scale, 512 // self.channels_scale, txt_emb_dim, time_emb_dim)
 
-        self.up_1 = nn.ConvTranspose2d(512, 512, kernel_size=2, stride=2, padding=0,
-                                       output_padding=0)  # правильно (up conv 2*2) Этот блок увеличивает изображение в 2 раза
-        self.decoder_1 = ResNetBlock(256 + 512, 512, time_emb_dim)
+        self.up_1 = nn.Sequential(
+            nn.ConvTranspose2d(512 // self.channels_scale, 512 // self.channels_scale, kernel_size=3, stride=2, padding=1, output_padding=1), # Более мягкая версия увеличения в 2 раза, помогающая убрать шахматные артефакты
+            nn.Conv2d(512 // self.channels_scale, 512 // self.channels_scale, kernel_size=3, padding=1, stride=1),  # Сглаживающая свёртка
+            nn.SiLU() # Максимальная мягкость
+        )
 
-        self.up_2 = nn.ConvTranspose2d(512, 384, kernel_size=2, stride=2, padding=0,
-                                       output_padding=0)  # правильно
-        self.decoder_2 = ResNetMiddleBlock(128 + 384, 384, time_emb_dim)
+        # self.up_1 = nn.ConvTranspose2d(512, 512, kernel_size=2, stride=2, padding=0,
+        #                                output_padding=0)  # правильно (up conv 2*2) Этот блок увеличивает изображение в 2 раза
+        self.decoder_1 = ResNetBlock(256 // self.channels_scale + 512 // self.channels_scale, 512 // self.channels_scale, time_emb_dim)
 
-        self.cross_attn_1 = CrossAttentionMultiHead(txt_emb_dim, 384)
+        self.up_2 = nn.Sequential(
+            nn.ConvTranspose2d(512 // self.channels_scale, 384 // self.channels_scale, kernel_size=3, stride=2, padding=1, output_padding=1),
+            # Более мягкая версия увеличения в 2 раза, помогающая убрать шахматные артефакты
+            nn.Conv2d(384 // self.channels_scale, 384 // self.channels_scale, kernel_size=3, padding=1, stride=1),  # Сглаживающая свёртка
+            nn.SiLU()  # Максимальная мягкость
+        )
 
-        self.up_3 = nn.ConvTranspose2d(384, 192, kernel_size=2, stride=2, padding=0,
-                                       output_padding=0)  # правильно
-        self.single_conv_dec_1 = nn.Conv2d(64 + 192, 96, kernel_size=3, padding=1,
+        # self.up_2 = nn.ConvTranspose2d(512, 384, kernel_size=2, stride=2, padding=0,
+        #                                output_padding=0)  # правильно
+        self.decoder_2 = ResNetMiddleBlock(128 // self.channels_scale + 384 // self.channels_scale, 384 // self.channels_scale, time_emb_dim)
+
+        self.cross_attn_1 = CrossAttentionMultiHead(txt_emb_dim, 384 // self.channels_scale)
+
+        self.up_3 = nn.Sequential(
+            nn.ConvTranspose2d(384 // self.channels_scale, 192 // self.channels_scale, kernel_size=3, stride=2, padding=1, output_padding=1),
+            # Более мягкая версия увеличения в 2 раза, помогающая убрать шахматные артефакты
+            nn.Conv2d(192 // self.channels_scale, 192 // self.channels_scale, kernel_size=3, padding=1, stride=1),  # Сглаживающая свёртка
+            nn.SiLU()  # Максимальная мягкость
+        )
+
+        # self.up_3 = nn.ConvTranspose2d(384, 192, kernel_size=2, stride=2, padding=0,
+        #                                output_padding=0)  # правильно
+        self.single_conv_dec_1 = nn.Conv2d(64 // self.channels_scale + 192 // self.channels_scale, 96 // self.channels_scale, kernel_size=3, padding=1,
                                            stride=1)
         self.final = nn.Sequential(
-            nn.Conv2d(96, self.orig_img_channels, kernel_size=3, padding=1, stride=1),
-            # nn.Tanh()
-        )
+            nn.Conv2d(96 // self.channels_scale, self.orig_img_channels, kernel_size=3, padding=1, stride=1),
+        ) # В ddpm без финальной активации
 
         # self.final = nn.Sequential(
         #     nn.Conv2d(96, 3, kernel_size=1),
@@ -220,7 +251,7 @@ class MyUNet(nn.Module):
         # )
 
     def forward(self, x, text_emb, time_emb, attension_mask):
-        x = self.single_conv(x)
+        x = self.prepare(x)
         x = self.encoder_1(x, time_emb)
         x_skip_conn_1 = x
         x = self.down_conv_1(x)

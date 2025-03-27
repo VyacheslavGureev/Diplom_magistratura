@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import random_split, DataLoader
+import torch.optim.lr_scheduler as lr_scheduler
 import matplotlib.pyplot as plt
 import random
 from tqdm import tqdm
@@ -136,22 +137,6 @@ class ModelManager():
         e_loader = encapsulated_data.EncapsulatedDataloaders(train_loader, val_loader, test_loader)
         return e_loader
 
-    # def create_dataloaders_mnist(self, dataset, train_size_percent, val_size_percent):
-    #     # Разделяем датасеты
-    #     train_size = int(train_size_percent * len(dataset))
-    #     val_size = int(val_size_percent * len(dataset))
-    #     test_size = len(dataset) - train_size - val_size
-    #     train_dataset, val_dataset, test_dataset = random_split(dataset,
-    #                                                             [train_size, val_size, test_size])
-    #     train_loader = DataLoader(train_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=True,
-    #                               collate_fn=self.collate_fn)
-    #     val_loader = DataLoader(val_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=False,
-    #                             collate_fn=self.collate_fn)
-    #     test_loader = DataLoader(test_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=False,
-    #                              collate_fn=self.collate_fn)  # Тестовый датасет можно не перемешивать
-    #     e_loader = encapsulated_data.EncapsulatedDataloaders(train_loader, val_loader, test_loader)
-    #     return e_loader
-
     def collate_fn(self, batch):
         if len(batch) % hyperparams.BATCH_SIZE != 0:
             additional_batch = random.choices(batch, k=hyperparams.BATCH_SIZE - (len(batch) % hyperparams.BATCH_SIZE))
@@ -203,6 +188,12 @@ class ModelManager():
 
     def train_model(self, e_model: encapsulated_data.EncapsulatedModel,
                     e_loader: encapsulated_data.EncapsulatedDataloaders, epochs):
+
+        optimizer = e_model.optimizer
+
+        # step_scheduler = lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5) # MNIST очень большой, поэтому каждый 5 эпох уменьшаем в 2 раза
+        plateau_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
+
         for epoch in range(epochs):
             running_train_loss = self.training_model(e_model, e_loader)
             running_val_loss = self.validating_model(e_model, e_loader)
@@ -218,20 +209,20 @@ class ModelManager():
             hist[last_epoch]['val_loss'] = running_val_loss / len(e_loader.val)
             e_model.history = hist
 
-            # hist[last_epoch] = {}
-            # hist[last_epoch]['train_loss'] = train_loss.item()
-            # hist[last_epoch]['val_loss'] = val_loss.item()
-            # e_model.history = hist
+            # step_scheduler.step()  # Уменьшает каждые N эпох
+            plateau_scheduler.step(running_val_loss / len(e_loader.val))  # Дополнительно уменьшает, если застряли
 
     def training_model(self, e_model: encapsulated_data.EncapsulatedModel,
                        e_loader: encapsulated_data.EncapsulatedDataloaders):
         print("Тренировка")
         model = e_model.model
+        ema = e_model.ema
         device = e_model.device
         optimizer = e_model.optimizer
         criterion = e_model.criterion
         train_loader = e_loader.train
 
+        ema.ema_model.eval()
         model.train()  # Включаем режим обучения
 
         loss = None
@@ -263,6 +254,8 @@ class ModelManager():
             loss_train.backward()
 
             optimizer.step()
+
+            ema.update()
 
             i += 1
             end_time = time.time()
@@ -373,11 +366,17 @@ class ModelManager():
         model = e_model.model
         optimizer = e_model.optimizer
         history = e_model.history
+
         model.cpu()
+        ema = e_model.ema
+        ema_model = ema.ema_model
+        ema_model.cpu()
         torch.save({
             'history': history,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
+            'ema': ema_model.state_dict(),  # EMA-веса
+            'decay': ema.decay
         }, model_filepath)
 
     def load_my_model_in_middle_train(self, model_dir, model_file, device):
@@ -397,25 +396,13 @@ class ModelManager():
         e_model.optimizer = optimizer
         e_model.history = history
 
+        ema = encapsulated_data.EMA(model, device)
+        ema.decay = checkpoint['decay']
+        ema.ema_model.load_state_dict(checkpoint['ema'])  # Загружаем EMA-веса
         return e_model
 
-    # def save_my_model(self, model, model_dir, model_file):
-    #     # Сохраняем только state_dict модели
-    #     model_filepath = model_dir + model_file
-    #     model.cpu()
-    #     torch.save(model.state_dict(), model_filepath)
-    #
-    # def load_my_model(self, model_dir, model_file, device):
-    #     # Загружаем модель
-    #     model_filepath = model_dir + model_file
-    #     model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM_REDUCED, device).to(
-    #         device)  # Нужно заново создать архитектуру модели
-    #     model.load_state_dict(torch.load(model_filepath))
-    #     model.eval()  # Устанавливаем модель в режим оценки (для тестирования)
-    #     return model
-
     # Функция для reverse diffusion
-    def reverse_diffusion(self, model, text_embedding, attn_mask, device):
+    def reverse_diffusion(self, model, ema, text_embedding, attn_mask, device):
         # Инициализация случайного шума (начало процесса)
         orig_channels = 1
 
@@ -431,6 +418,7 @@ class ModelManager():
         # t_tensor = torch.full((hyperparams.BATCH_SIZE,), step).to(device)  # (B, )
         # Запускаем процесс reverse diffusion
 
+        ema.ema_model.eval()
         model.eval()
         with torch.no_grad():
             i = 0
@@ -442,7 +430,8 @@ class ModelManager():
                 t_i = self.get_time_embedding(t_tensor[step], hyperparams.TIME_EMB_DIM)
                 t_i = t_i.to(device)
 
-                predicted_noise = model(x_t, text_embedding, t_i, attn_mask)
+                # predicted_noise = model(x_t, text_embedding, t_i, attn_mask)
+                predicted_noise = ema.ema_model(x_t, text_embedding, t_i, attn_mask)
 
                 # if i == 500:
                 self.show_image(predicted_noise[5])
@@ -462,6 +451,7 @@ class ModelManager():
     def get_img_from_text(self, e_model: encapsulated_data.EncapsulatedModel, text, device):
         text_embs, masks = dc.get_text_emb(text)
         model = e_model.model
+        ema = e_model.ema
 
         # Повторяем тензоры, чтобы размерность по батчам совпадала
         text_emb_batch = text_embs.unsqueeze(0).expand(hyperparams.BATCH_SIZE, -1, -1)  # (B, tokens, text_emb_dim)
@@ -469,7 +459,7 @@ class ModelManager():
 
         mask_batch = mask_batch.to(device)
         text_emb_batch = text_emb_batch.to(device)
-        img = self.reverse_diffusion(model, text_emb_batch, mask_batch, device)
+        img = self.reverse_diffusion(model, ema, text_emb_batch, mask_batch, device)
         return img
 
     def show_image(self, tensor_img):
