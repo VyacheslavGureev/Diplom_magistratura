@@ -1,6 +1,7 @@
 import sys
 
 from PyQt5 import QtWidgets
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton, QApplication
 
 from services.navigation_service import CommonObject
 
@@ -15,6 +16,33 @@ import models.manager as manager
 import models.encapsulated_data as encapsulated_data
 
 
+
+
+# Функция для остановки
+def stop_training_func():
+    global STOP
+    STOP = True
+    print("Остановка обучения!")
+
+# Простое окно с кнопкой для остановки
+class StopTrainingWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+
+        self.setWindowTitle("Остановка обучения")
+        self.setGeometry(100, 100, 200, 100)
+
+        layout = QVBoxLayout()
+
+        self.stop_button = QPushButton("Остановить обучение", self)
+        self.stop_button.clicked.connect(stop_training_func)
+        layout.addWidget(self.stop_button)
+
+        self.setLayout(layout)
+
+
+
+
 def main():
     pass
     # app = QtWidgets.QApplication(sys.argv)
@@ -25,6 +53,14 @@ def main():
 
 
 def neural_func():
+    # app = QApplication(sys.argv)
+
+    # Открываем окно с кнопкой
+    # window = StopTrainingWindow()
+    # window.show()
+
+
+
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # model_manager = manager.ModelManager(device)
     # dataset_full = dc.create_dataset_mnist("./datas",
@@ -64,7 +100,7 @@ def neural_func():
         em = model_manager.load_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR, hyperparams.CURRENT_MODEL_NAME,
                                                          device)
         print('Загрузка завершена!')
-        text = 'Единица'
+        text = 'три'
         i = model_manager.get_img_from_text(em, text, device)
         model_manager.show_image(i[1])
     else:
@@ -84,8 +120,8 @@ def neural_func():
             model_manager.test_model(em, ed)
             print('Тестирование завершено!')
         elif mode == 'img':
-            i, _, _ = next(iter(ed.train))
-            model_manager.show_image(i[7])
+            i, _, _ = next(iter(ed.test))
+            model_manager.show_image(i[6])
         elif mode == 'create_train_save':
             em = model_manager.create_model()
             model_manager.train_model(em, ed, hyperparams.EPOCHS)
@@ -114,10 +150,10 @@ def neural_func():
             images, text_embs, attention_mask = next(iter(ed.test))
             images = images.to(device)
             t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
-            t = torch.tensor([450])
+            t = torch.tensor([900])
             t = t.expand(hyperparams.BATCH_SIZE)
             t = t.to(device)
-            xt = model_manager.forward_diffusion(images, t).to(device)  # добавляем шум
+            xt, added_noise = model_manager.forward_diffusion(images, t)
             model_manager.show_image(xt[0])
 
 

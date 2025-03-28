@@ -91,12 +91,12 @@ class ModelManager():
     def __init__(self, device):
         self.device = device
 
-        # beta_start = 1e-4
-        # beta_end = 0.02
-        # self.create_diff_sheduler_linear(hyperparams.T, beta_start, beta_end)
+        beta_start = 0.001
+        beta_end = 0.01
+        self.create_diff_sheduler_linear(hyperparams.T, beta_start, beta_end)
 
-        s = 0.008
-        self.create_diff_scheduler_cosine(hyperparams.T, s)
+        # s = 0.008
+        # self.create_diff_scheduler_cosine(hyperparams.T, s)
 
     def create_diff_sheduler_linear(self, num_time_steps, beta_start, beta_end):
         # Precomputing beta, alpha, and alpha_bar for all t's.
@@ -171,7 +171,8 @@ class ModelManager():
             noise = torch.randn_like(x0, requires_grad=False)
         at = self.a_bar[t][:, None, None, None]
         xt = torch.sqrt(at) * x0 + torch.sqrt(1 - at) * noise
-        return xt
+        # return xt
+        return xt, noise
 
     def get_time_embedding(self,
                            time_steps: torch.Tensor,
@@ -206,12 +207,10 @@ class ModelManager():
     def train_model(self, e_model: encapsulated_data.EncapsulatedModel,
                     e_loader: encapsulated_data.EncapsulatedDataloaders, epochs):
 
-        optimizer = e_model.optimizer
-
         # step_scheduler = lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5) # MNIST очень большой, поэтому каждый 5 эпох уменьшаем в 2 раза
-        plateau_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=4)
+        plateau_scheduler = lr_scheduler.ReduceLROnPlateau(e_model.optimizer, mode='min', factor=0.5, patience=3)
 
-        early_stopping = EarlyStopping(patience=3)
+        early_stopping = EarlyStopping(patience=5)
 
         for epoch in range(epochs):
             running_train_loss = self.training_model(e_model, e_loader)
@@ -274,10 +273,11 @@ class ModelManager():
             t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
             time_emb = self.get_time_embedding(t, hyperparams.TIME_EMB_DIM)
 
-            xt = self.forward_diffusion(images, t).to(device)  # добавляем шум
+            xt, added_noise = self.forward_diffusion(images, t)
+            xt = xt.to(device)
+            added_noise = added_noise.to(device)
             predicted_noise = model(xt, text_embs, time_emb, attention_mask)
-
-            loss_train = criterion(predicted_noise, torch.randn_like(xt))  # сравниваем с реальным шумом
+            loss_train = criterion(predicted_noise, added_noise)  # сравниваем с добавленным шумом
             loss = loss_train
             running_loss += loss_train.item()
             loss_train.backward()
@@ -327,10 +327,12 @@ class ModelManager():
                 t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
                 time_emb = self.get_time_embedding(t, hyperparams.TIME_EMB_DIM)
 
-                xt = self.forward_diffusion(images, t).to(device)  # добавляем шум
+                # xt = self.forward_diffusion(images, t).to(device)  # добавляем шум
+                xt, added_noise = self.forward_diffusion(images, t)
+                xt = xt.to(device)
+                added_noise = added_noise.to(device)
                 predicted_noise = model(xt, text_embs, time_emb, attention_mask)
-
-                loss_val = criterion(predicted_noise, torch.randn_like(xt))
+                loss_val = criterion(predicted_noise, added_noise)
                 loss = loss_val
                 running_loss += loss_val.item()
 
@@ -372,10 +374,11 @@ class ModelManager():
                 t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
                 time_emb = self.get_time_embedding(t, hyperparams.TIME_EMB_DIM)
 
-                xt = self.forward_diffusion(images, t).to(device)  # добавляем шум
+                xt, added_noise = self.forward_diffusion(images, t)
+                xt = xt.to(device)
+                added_noise = added_noise.to(device)
                 predicted_noise = model(xt, text_embs, time_emb, attention_mask)
-
-                loss_test = criterion(predicted_noise, torch.randn_like(xt))
+                loss_test = criterion(predicted_noise, added_noise)
                 test_loss += loss_test.item()
 
                 i += 1
@@ -451,7 +454,7 @@ class ModelManager():
                 t_i = t_i.to(device)
                 predicted_noise = model(x_t, text_embedding, t_i, attn_mask)
                 # predicted_noise = ema.ema_model(x_t, text_embedding, t_i, attn_mask)
-                # if i == 500:
+                # if step == 1:
                 # self.show_image(predicted_noise[5])
                 x_t = (1 / torch.sqrt(self.a[step])) * (
                         x_t - ((1 - self.a[step]) / (torch.sqrt(1 - self.a_bar[step]))) * predicted_noise)
@@ -460,6 +463,7 @@ class ModelManager():
                 if step > 0:  # Добавляем случайный шум на всех шагах, кроме последнего
                     noise = torch.randn_like(x_t).to(device) * (1 - self.a[step]).sqrt()
                     x_t += noise
+
                 i += 1
         # Вернем восстановленное изображение
         return x_t
