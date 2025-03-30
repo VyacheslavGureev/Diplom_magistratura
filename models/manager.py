@@ -1,6 +1,9 @@
 import math
 import time
 
+import os
+import torchvision.utils as vutils
+import imageio
 import numpy as np
 import torch
 import torch.nn as nn
@@ -10,6 +13,7 @@ import torch.optim.lr_scheduler as lr_scheduler
 import matplotlib.pyplot as plt
 import random
 from tqdm import tqdm
+from torch.cuda.amp import autocast, GradScaler
 
 import models.hyperparams as hyperparams
 import models.dataset_creator as dc
@@ -253,11 +257,11 @@ class ModelManager():
         ema.ema_model.eval()
         model.train()  # Включаем режим обучения
 
-        loss = None
         running_loss = 0.0
         log_interval = 50  # Выводим лосс каждые 50 батчей
 
         i = 0
+        scaler = torch.cuda.amp.GradScaler()
         start_time_ep = time.time()
         for images, text_embs, attention_mask in train_loader:
             if hyperparams.OGRANICHITEL:
@@ -276,13 +280,19 @@ class ModelManager():
             xt, added_noise = self.forward_diffusion(images, t)
             xt = xt.to(device)
             added_noise = added_noise.to(device)
-            predicted_noise = model(xt, text_embs, time_emb, attention_mask)
-            loss_train = criterion(predicted_noise, added_noise)  # сравниваем с добавленным шумом
-            loss = loss_train
-            running_loss += loss_train.item()
-            loss_train.backward()
 
-            optimizer.step()
+            with torch.cuda.amp.autocast():  # Включаем AMP
+                predicted_noise = model(xt, text_embs, time_emb, attention_mask)
+                loss_train = criterion(predicted_noise, added_noise)  # сравниваем с добавленным шумом
+            running_loss += loss_train.item()
+
+            scaler.scale(loss_train).backward()  # Масштабируем градиенты
+            scaler.step(optimizer)  # Делаем шаг оптимизатора
+            scaler.update()  # Обновляем скейлер
+
+            # loss_train.backward()
+
+            # optimizer.step()
 
             ema.update()
 
@@ -291,7 +301,7 @@ class ModelManager():
             print(f"Процентов {(i / len(train_loader)) * 100}, {end_time - start_time}")
 
             if i % log_interval == 0:
-                print(f"Batch: {i}, Current Loss: {loss.item():.4f}")
+                print(f"Batch: {i}, Current Loss: {loss_train.item():.4f}")
 
         end_time_ep = time.time()
         print(f'Трен. заверш. {end_time_ep - start_time_ep}')
@@ -310,7 +320,6 @@ class ModelManager():
         # Оценка на валидационном датасете
         running_loss = 0.0
         log_interval = 50  # Выводим лосс каждые 50 батчей
-        loss = None
 
         i = 0
         with torch.no_grad():
@@ -327,13 +336,14 @@ class ModelManager():
                 t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
                 time_emb = self.get_time_embedding(t, hyperparams.TIME_EMB_DIM)
 
-                # xt = self.forward_diffusion(images, t).to(device)  # добавляем шум
                 xt, added_noise = self.forward_diffusion(images, t)
                 xt = xt.to(device)
                 added_noise = added_noise.to(device)
-                predicted_noise = model(xt, text_embs, time_emb, attention_mask)
-                loss_val = criterion(predicted_noise, added_noise)
-                loss = loss_val
+
+                with torch.cuda.amp.autocast():  # Включаем AMP
+                    predicted_noise = model(xt, text_embs, time_emb, attention_mask)
+                    loss_val = criterion(predicted_noise, added_noise)
+
                 running_loss += loss_val.item()
 
                 i += 1
@@ -341,7 +351,7 @@ class ModelManager():
                 print(f"Процентов {(i / len(val_loader)) * 100}, {end_time - start_time}")
 
                 if i % log_interval == 0:
-                    print(f"Batch: {i}, Current Loss: {loss.item():.4f}")
+                    print(f"Batch: {i}, Current Loss: {loss_val.item():.4f}")
 
             end_time_ep = time.time()
             print(f'Вал. заверш. {end_time_ep - start_time_ep}')
@@ -377,8 +387,10 @@ class ModelManager():
                 xt, added_noise = self.forward_diffusion(images, t)
                 xt = xt.to(device)
                 added_noise = added_noise.to(device)
-                predicted_noise = model(xt, text_embs, time_emb, attention_mask)
-                loss_test = criterion(predicted_noise, added_noise)
+
+                with torch.cuda.amp.autocast():  # Включаем AMP
+                    predicted_noise = model(xt, text_embs, time_emb, attention_mask)
+                    loss_test = criterion(predicted_noise, added_noise)
                 test_loss += loss_test.item()
 
                 i += 1
@@ -417,7 +429,7 @@ class ModelManager():
         checkpoint = torch.load(model_filepath)
         e_model = encapsulated_data.EncapsulatedModel()
 
-        model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM).to(device)
+        model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM, 1, 2, hyperparams.BATCH_SIZE).to(device)
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer = optim.Adam(model.parameters(), lr=hyperparams.LR, weight_decay=1e-4)
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -464,7 +476,29 @@ class ModelManager():
                     noise = torch.randn_like(x_t).to(device) * (1 - self.a[step]).sqrt()
                     x_t += noise
 
+                if i % 25 == 0:
+                    vutils.save_image(x_t, f"E:/YandexDisk/Another/Diplom_maga/Diplom_magistratura/trained/denoising/step_{step}.png", normalize=True)
+
+
+
+
+
+
+
+
+
+
                 i += 1
+
+
+
+        images = []
+        for step in sorted(os.listdir("trained/denoising"), key=lambda x: int(x.split("_")[1].split(".")[0]), reverse=True):
+            images.append(imageio.imread(os.path.join("trained/denoising", step)))
+
+        imageio.mimsave("trained/denoising/denoising_process.gif", images, duration=0.3)  # 0.3 секунды на кадр
+
+
         # Вернем восстановленное изображение
         return x_t
 

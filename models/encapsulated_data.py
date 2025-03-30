@@ -15,7 +15,7 @@ class EncapsulatedModel:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(self.device)
 
-        self.model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM)
+        self.model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM, 1, 2, hyperparams.BATCH_SIZE)
         self.model.to(self.device)
 
         self.ema = EMA(self.model, self.device)
@@ -23,7 +23,6 @@ class EncapsulatedModel:
         self.optimizer = optim.Adam(self.model.parameters(), lr=hyperparams.LR, weight_decay=1e-4)
         self.criterion = nn.MSELoss()
         self.history = {0: {'train_loss': math.inf, 'val_loss': math.inf}}
-
 
 
 class EMA:
