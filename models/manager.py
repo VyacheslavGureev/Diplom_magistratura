@@ -95,8 +95,9 @@ class ModelManager():
     def __init__(self, device):
         self.device = device
 
-        beta_start = 0.001
-        beta_end = 0.01
+        # Максимально стандартное линейное расписание
+        beta_start = 1e-4
+        beta_end = 0.02
         self.create_diff_sheduler_linear(hyperparams.T, beta_start, beta_end)
 
         # s = 0.008
@@ -242,8 +243,6 @@ class ModelManager():
             # step_scheduler.step()  # Уменьшает каждые N эпох
             plateau_scheduler.step(avg_loss_val)  # Дополнительно уменьшает, если застряли
 
-
-
     def training_model(self, e_model: encapsulated_data.EncapsulatedModel,
                        e_loader: encapsulated_data.EncapsulatedDataloaders):
         print("Тренировка")
@@ -282,7 +281,12 @@ class ModelManager():
             added_noise = added_noise.to(device)
 
             with torch.cuda.amp.autocast():  # Включаем AMP
-                predicted_noise = model(xt, text_embs, time_emb, attention_mask)
+                guidance_prob = 0.15  # 15% примеров будут безусловными
+                if random.random() < guidance_prob:
+                    predicted_noise = model(xt, None, time_emb, None)  # Безусловное предсказание
+                else:
+                    predicted_noise = model(xt, text_embs, time_emb, attention_mask)  # Условное предсказание
+                # predicted_noise = model(xt, text_embs, time_emb, attention_mask)
                 loss_train = criterion(predicted_noise, added_noise)  # сравниваем с добавленным шумом
             running_loss += loss_train.item()
 
@@ -429,9 +433,21 @@ class ModelManager():
         checkpoint = torch.load(model_filepath)
         e_model = encapsulated_data.EncapsulatedModel()
 
-        model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM, 1, 2, hyperparams.BATCH_SIZE).to(device)
+        model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM, 1, 4, hyperparams.BATCH_SIZE).to(
+            device)
         model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer = optim.Adam(model.parameters(), lr=hyperparams.LR, weight_decay=1e-4)
+        cross_attn_params = []
+        other_params = []
+        for name, param in model.named_parameters():
+            if "cross_attn" in name:  # Указываем название слоев
+                cross_attn_params.append(param)  # Отдельный список для Cross-Attention
+            else:
+                other_params.append(param)  # Остальные параметры
+        optimizer = optim.AdamW([
+            {"params": other_params, "lr": hyperparams.LR},  # Обычный LR
+            {"params": cross_attn_params, "lr": 3.33e-5}  # Уменьшенный LR для Cross-Attention
+        ], weight_decay=1e-4)
+        # optimizer = optim.Adam(model.parameters(), lr=hyperparams.LR, weight_decay=1e-4)
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         history = checkpoint.get('history', {0: {'train_loss': math.inf,
                                                  'val_loss': math.inf}})  # Если модель была обучена, но во время её обучения ещё не был реализован функционал сохранения истории обучения
@@ -456,6 +472,14 @@ class ModelManager():
         t_tensor = t_tensor.unsqueeze(1)
         t_tensor = t_tensor.expand(hyperparams.T, hyperparams.BATCH_SIZE)
         t_tensor = t_tensor.to(device)
+
+        output_dir = "trained/denoising/"
+        # Удаляем все файлы в папке
+        for file in os.listdir(output_dir):
+            file_path = os.path.join(output_dir, file)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+
         # Запускаем процесс reverse diffusion
         ema.ema_model.eval()
         model.eval()
@@ -464,40 +488,37 @@ class ModelManager():
             for step in tqdm(range(hyperparams.T - 1, -1, -1), colour='white'):
                 t_i = self.get_time_embedding(t_tensor[step], hyperparams.TIME_EMB_DIM)
                 t_i = t_i.to(device)
-                predicted_noise = model(x_t, text_embedding, t_i, attn_mask)
+                # predicted_noise = model(x_t, text_embedding, t_i, attn_mask)
+
                 # predicted_noise = ema.ema_model(x_t, text_embedding, t_i, attn_mask)
                 # if step == 1:
                 # self.show_image(predicted_noise[5])
+
+                guidance_scale = 7.5  # Усиление текстового сигнала
+                predicted_noise_uncond = model(x_t, None, t_i, None) # Безусловное предсказание
+                predicted_noise_cond = model(x_t, text_embedding, t_i, attn_mask)  # Условное предсказание
+                predicted_noise = guidance_scale * predicted_noise_cond + (1 - guidance_scale) * predicted_noise_uncond
+
                 x_t = (1 / torch.sqrt(self.a[step])) * (
                         x_t - ((1 - self.a[step]) / (torch.sqrt(1 - self.a_bar[step]))) * predicted_noise)
                 # Можно добавить дополнительные шаги, такие как коррекция или уменьшение шума
                 # Например, можно добавить немного шума обратно с каждым шагом:
-                if step > 0:  # Добавляем случайный шум на всех шагах, кроме последнего
-                    noise = torch.randn_like(x_t).to(device) * (1 - self.a[step]).sqrt()
-                    x_t += noise
+                # if step > 0:  # Добавляем случайный шум на всех шагах, кроме последнего
+                #     noise = torch.randn_like(x_t).to(device) * (1 - self.a[step]).sqrt()
+                #     x_t += noise
 
-                if i % 25 == 0:
-                    vutils.save_image(x_t, f"E:/YandexDisk/Another/Diplom_maga/Diplom_magistratura/trained/denoising/step_{step}.png", normalize=True)
-
-
-
-
-
-
-
-
-
+                if i % 20 == 0:
+                    vutils.save_image(x_t, f"trained/denoising/step_{step}.png", normalize=True)
+                    # vutils.save_image(x_t, f"E:/YandexDisk/Another/Diplom_maga/Diplom_magistratura/trained/denoising/step_{step}.png", normalize=True)
 
                 i += 1
 
-
-
         images = []
-        for step in sorted(os.listdir("trained/denoising"), key=lambda x: int(x.split("_")[1].split(".")[0]), reverse=True):
+        for step in sorted(os.listdir("trained/denoising"), key=lambda x: int(x.split("_")[1].split(".")[0]),
+                           reverse=True):
             images.append(imageio.imread(os.path.join("trained/denoising", step)))
 
         imageio.mimsave("trained/denoising/denoising_process.gif", images, duration=0.3)  # 0.3 секунды на кадр
-
 
         # Вернем восстановленное изображение
         return x_t

@@ -1,7 +1,7 @@
 # --- Изменение этого могут затронуть модель, менеджер и даталодер!!! ---
 IMG_SIZE = 32  # Размер изображений
 BATCH_SIZE = 32
-LR = 0.0002
+LR = 0.0001
 
 T = 1000  # Количество шагов в диффузии
 
@@ -13,7 +13,7 @@ MAX_LEN_TOKENS = 50
 
 # --- Можно менять почти безболезненно ---
 EPOCHS = 1
-CURRENT_MODEL_NAME = '32p_strong_model_mnist.pth'
+CURRENT_MODEL_NAME = '32p_mnist.pth'
 CURRENT_MODEL_DIR = 'trained/'
 
 # --- Гиперпараметры для дебага ---

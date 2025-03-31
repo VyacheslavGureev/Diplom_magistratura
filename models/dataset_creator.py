@@ -15,21 +15,34 @@ class MNISTTextDataset(Dataset):
     def __init__(self, root, train, transform, tokenizer, text_encoder, max_len_tokens):
         self.mnist = datasets.MNIST(root=root, train=train, download=True, transform=transform)
         # Текстовые описания для цифр
+        # self.TEXT_DESCRIPTIONS = {
+        #     0: ["Это цифра ноль","0","ноль"],
+        #     1: ["Изображена единица","1","единица", "один"],
+        #     2: ["Нарисована цифра два"],
+        #     3: ["На картинке цифра три"],
+        #     4: ["Четыре, написанное от руки"],
+        #     5: ["Это пятерка"],
+        #     6: ["Цифра шесть, нарисованная от руки"],
+        #     7: ["На изображении семерка"],
+        #     8: ["Нарисована цифра восемь"],
+        #     9: ["Рукописная девятка"]
+        # }
         self.TEXT_DESCRIPTIONS = {
-            0: "Это цифра ноль",
-            1: "Изображена единица",
-            2: "Нарисована цифра два",
-            3: "На картинке цифра три",
-            4: "Четыре, написанное от руки",
-            5: "Это пятерка",
-            6: "Цифра шесть, нарисованная от руки",
-            7: "На изображении семерка",
-            8: "Нарисована цифра восемь",
-            9: "Рукописная девятка"
+            0: "0",
+            1: "1",
+            2: "2",
+            3: "3",
+            4: "4",
+            5: "5",
+            6: "6",
+            7: "7",
+            8: "8",
+            9: "9"
         }
         self.tokenizer = tokenizer
         self.text_encoder = text_encoder
         self.max_len_tokens = max_len_tokens
+        self.drop_conditioning_p = 0.15  # Вероятность обнуления conditioning
 
         # self.maxxxx = 0
         # for i in self.mnist:
@@ -41,6 +54,12 @@ class MNISTTextDataset(Dataset):
         # print(self.maxxxx)
         # print('maxxx') # (максимальный размер кол-ва токенов для этого датасета = 36 (поэтому max_len_tokens = 50))
 
+    def add_label_smoothing(self, text, prob=0.1):
+        words = text.split()
+        for i in range(len(words)):
+            if random.random() < prob:
+                words[i] = "[MASK]"  # Заменяем случайное слово на MASK
+        return " ".join(words)
 
     def __len__(self):
         return len(self.mnist)
@@ -48,6 +67,7 @@ class MNISTTextDataset(Dataset):
     def __getitem__(self, idx):
         image, label = self.mnist[idx]  # Получаем картинку и её метку (0-9)
         caption = self.TEXT_DESCRIPTIONS[label]  # Берем описание цифры
+        caption = self.add_label_smoothing(caption, prob=0.2)  # 20% слов заменяются
         # print(caption)
         tokens = self.tokenizer(
             caption,
@@ -59,6 +79,9 @@ class MNISTTextDataset(Dataset):
         attention_mask = tokens['attention_mask'].squeeze(0)  # (max_length,)
         with torch.no_grad():
             text_emb_reduced = self.text_encoder(**tokens).last_hidden_state.squeeze(0)  # (max_length, txt_emb_dim)
+            if random.random() < self.drop_conditioning_p:
+                text_emb_reduced = torch.zeros_like(text_emb_reduced)  # Обнуляем текстовый эмбеддинг
+                attention_mask = torch.zeros_like(attention_mask)
         return image, text_emb_reduced, attention_mask
 
 
@@ -177,37 +200,3 @@ def create_dataset_mnist(folder, train_flag):
                                text_encoder=text_encoder,
                                max_len_tokens=hyperparams.MAX_LEN_TOKENS)
     return dataset
-
-# def reduce_embedding_linear(text_emb, reduced_dim):
-#     text_reducer = TextEmbeddingReducer(512, reduced_dim)
-#     text_emb_reduced = text_reducer(text_emb)  # (B, tokens, 256)
-#     return text_emb_reduced
-
-
-# def reduce_embedding_svd(text_emb, reduced_dim):
-#     """
-#     Уменьшает размерность текстового эмбеддинга с помощью SVD.
-#
-#     Параметры:
-#     - text_emb: torch.Tensor, размерность (tokens, original_dim)
-#     - reduced_dim: int, желаемая размерность (reduced_dim)
-#
-#     Возвращает:
-#     - reduced_emb: torch.Tensor, размерность (tokens, reduced_dim)
-#     """
-#     # SVD-разложение
-#     U, S, Vt = torch.linalg.svd(text_emb, full_matrices=False)
-#
-#     # Оставляем только первые reduced_dim компонент
-#     reduced_emb = U[:, :reduced_dim] @ torch.diag(S[:reduced_dim])
-#
-#     return reduced_emb
-#
-#
-# def reduce_embedding_pca(text_emb, reduced_dim):
-#     tokens, original_dim = text_emb.shape
-#     pca = PCA(n_components=reduced_dim)
-#     text_emb_reshaped = text_emb.view(-1, original_dim).cpu().numpy()
-#     reduced_emb = pca.fit_transform(text_emb_reshaped)
-#     new_tensor = torch.tensor(reduced_emb, dtype=text_emb.dtype, device=text_emb.device).view(tokens, reduced_dim)
-#     return new_tensor

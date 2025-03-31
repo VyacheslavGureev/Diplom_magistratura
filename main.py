@@ -53,19 +53,11 @@ def main():
 
 
 def neural_func():
-    # app = QApplication(sys.argv)
-
-    # Открываем окно с кнопкой
-    # window = StopTrainingWindow()
-    # window.show()
-
-
-
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # model_manager = manager.ModelManager(device)
     # dataset_full = dc.create_dataset_mnist("./datas",
     #                                        True)  # весь датасет mnist (тренировка + валидация (без теста)) (потому что True)
-    # train_size = int(0.83 * len(dataset_full))
+    # train_size = int(0.84 * len(dataset_full))
     # val_size = len(dataset_full) - train_size
     # # Тестовый датасет отдельно
     # tst_dataset = dc.create_dataset_mnist("./datas", False)
@@ -100,9 +92,18 @@ def neural_func():
         em = model_manager.load_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR, hyperparams.CURRENT_MODEL_NAME,
                                                          device)
         print('Загрузка завершена!')
-        text = 'Это цифра ноль'
+        # text = "Это цифра ноль"
+        # text = "Изображена единица"
+        # text = "Нарисована цифра два"
+        # text = "На картинке цифра три"
+        # text = "Четыре, написанное от руки"
+        text = "3"
+        # text = "Цифра шесть, нарисованная от руки"
+        # text = "На изображении семерка"
+        # text = "Нарисована цифра восемь"
+        # text = "Рукописная девятка"
         i = model_manager.get_img_from_text(em, text, device)
-        model_manager.show_image(i[1])
+        # model_manager.show_image(i[1])
     else:
         # dataset = dc.create_dataset("datas/Flickr8k/Images/", "datas/Flickr8k/captions/captions.txt")
         # ed = model_manager.create_dataloaders(dataset, 0.75, 0.14)
@@ -147,10 +148,10 @@ def neural_func():
                                                         hyperparams.CURRENT_MODEL_NAME)
             print('Продолжение тренировки завершено!')
         elif mode == 'debug':
-            images, text_embs, attention_mask = next(iter(ed.train))
+            images, text_embs, attention_mask = next(iter(ed.test))
             images = images.to(device)
             t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
-            t = torch.tensor([0])
+            t = torch.tensor([199])
             t = t.expand(hyperparams.BATCH_SIZE)
             t = t.to(device)
             xt, added_noise = model_manager.forward_diffusion(images, t)

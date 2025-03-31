@@ -15,12 +15,24 @@ class EncapsulatedModel:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(self.device)
 
-        self.model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM, 1, 2, hyperparams.BATCH_SIZE)
+        self.model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM, 1, 4, hyperparams.BATCH_SIZE)
         self.model.to(self.device)
 
         self.ema = EMA(self.model, self.device)
 
-        self.optimizer = optim.Adam(self.model.parameters(), lr=hyperparams.LR, weight_decay=1e-4)
+        cross_attn_params = []
+        other_params = []
+        for name, param in self.model.named_parameters():
+            if "cross_attn" in name:  # Указываем название слоев
+                cross_attn_params.append(param)  # Отдельный список для Cross-Attention
+            else:
+                other_params.append(param)  # Остальные параметры
+        self.optimizer = optim.AdamW([
+            {"params": other_params, "lr": hyperparams.LR},  # Обычный LR
+            {"params": cross_attn_params, "lr": 3.33e-5}  # Уменьшенный LR для Cross-Attention
+        ], weight_decay=1e-4)
+
+        # self.optimizer = optim.Adam(self.model.parameters(), lr=hyperparams.LR, weight_decay=1e-4)
         self.criterion = nn.MSELoss()
         self.history = {0: {'train_loss': math.inf, 'val_loss': math.inf}}
 
