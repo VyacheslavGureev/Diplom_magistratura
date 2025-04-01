@@ -9,6 +9,7 @@ from torch.utils.data import random_split, DataLoader
 
 import pickle
 import torch
+from transformers import CLIPTokenizer, CLIPTextModel
 import models.nn_model as neural
 import models.dataset_creator as dc
 import models.hyperparams as hyperparams
@@ -53,6 +54,13 @@ def main():
 
 
 def neural_func():
+    # # Загружаем CLIP
+    # tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
+    # text_encoder = CLIPTextModel.from_pretrained("openai/clip-vit-base-patch32")
+    #
+    # dc.save_data_to_file(tokenizer, 'datas/embedders/tokenizer.pkl')
+    # dc.save_data_to_file(text_encoder, 'datas/embedders/text_encoder.pkl')
+
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # model_manager = manager.ModelManager(device)
     # dataset_full = dc.create_dataset_mnist("./datas",
@@ -72,8 +80,7 @@ def neural_func():
     # test_loader = DataLoader(tst_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=False,
     #                          collate_fn=model_manager.collate_fn)
     # e_loader = encapsulated_data.EncapsulatedDataloaders(train_loader, val_loader, test_loader)
-    # with open("trained/e_loader.pkl", "wb") as f:
-    #     pickle.dump(e_loader, f)
+    # dc.save_data_to_file(e_loader, 'trained/e_loader.pkl')
     # print('test')
 
     # mode = 'img'  #
@@ -94,10 +101,10 @@ def neural_func():
         print('Загрузка завершена!')
         # text = "Это цифра ноль"
         # text = "Изображена единица"
-        # text = "Нарисована цифра два"
+        text = "Нарисована цифра два"
         # text = "На картинке цифра три"
         # text = "Четыре, написанное от руки"
-        text = "3"
+        # text = "4"
         # text = "Цифра шесть, нарисованная от руки"
         # text = "На изображении семерка"
         # text = "Нарисована цифра восемь"
@@ -132,7 +139,7 @@ def neural_func():
         elif mode == 'create_train_test_save':
             em = model_manager.create_model()
             model_manager.train_model(em, ed, hyperparams.EPOCHS)
-            model_manager.test_model(em, ed)
+            # model_manager.test_model(em, ed)
             print('Тестирование завершено!')
             model_manager.save_my_model_in_middle_train(em, hyperparams.CURRENT_MODEL_DIR,
                                                         hyperparams.CURRENT_MODEL_NAME)
@@ -159,7 +166,7 @@ def neural_func():
 
 
 if __name__ == '__main__':
-    print('abc')
+    # print('abc')
 
     # main()
 

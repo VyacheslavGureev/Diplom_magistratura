@@ -52,7 +52,7 @@ class CrossAttentionMultiHead(nn.Module):
         attn = self.dropout(attn)
 
         out = (attn @ v).transpose(1, 2).reshape(B, H * W, C)
-        out = x_flat + 0.5 * out  # Малый вес для стабильности (0,5 пока подходит)
+        # out = x_flat + 1.0 * out  # Малый вес для стабильности (0,5 пока подходит)
         out = out.permute(0, 2, 1).view(B, C, H, W)
         return out
 
@@ -215,7 +215,6 @@ class DeepBottleneck(nn.Module):
         self.batch_size = batch_size
         self.deep_block_1 = ResNetBlock(in_C, out_C, time_emb_dim, self.batch_size)
         self.cross_attn_multi_head_1 = CrossAttentionMultiHead(text_emb_dim, out_C)
-
         # self.deep_block_2 = ResNetBlock(512, 512, time_emb_dim)
 
     # здесь правильный порядок преобразований!!!

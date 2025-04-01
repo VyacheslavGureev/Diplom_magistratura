@@ -96,12 +96,12 @@ class ModelManager():
         self.device = device
 
         # Максимально стандартное линейное расписание
-        beta_start = 1e-4
-        beta_end = 0.02
-        self.create_diff_sheduler_linear(hyperparams.T, beta_start, beta_end)
+        # beta_start = 1e-4
+        # beta_end = 0.02
+        # self.create_diff_sheduler_linear(hyperparams.T, beta_start, beta_end)
 
-        # s = 0.008
-        # self.create_diff_scheduler_cosine(hyperparams.T, s)
+        s = 0.008
+        self.create_diff_scheduler_cosine(hyperparams.T, s)
 
     def create_diff_sheduler_linear(self, num_time_steps, beta_start, beta_end):
         # Precomputing beta, alpha, and alpha_bar for all t's.
@@ -119,7 +119,7 @@ class ModelManager():
         f_t = torch.cos((t / T + s) / (1 + s) * (np.pi / 2)) ** 2  # Косинусная формула
         alpha_bar = f_t / f_t[0]  # Нормируем, чтобы α̅_T = 1
         beta = 1 - alpha_bar[1:] / alpha_bar[:-1]  # Вычисляем b_t
-        self.b = torch.clip(beta, 0.0001, 0.1)  # Ограничиваем b_t
+        self.b = torch.clip(beta, 0.0001, 0.999)  # Ограничиваем b_t
         self.a = 1 - self.b
         self.a_bar = torch.cumprod(self.a, dim=0)
         self.b = self.b.to(self.device)
@@ -212,17 +212,18 @@ class ModelManager():
     def train_model(self, e_model: encapsulated_data.EncapsulatedModel,
                     e_loader: encapsulated_data.EncapsulatedDataloaders, epochs):
 
-        # step_scheduler = lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5) # MNIST очень большой, поэтому каждый 5 эпох уменьшаем в 2 раза
         plateau_scheduler = lr_scheduler.ReduceLROnPlateau(e_model.optimizer, mode='min', factor=0.5, patience=3)
 
         early_stopping = EarlyStopping(patience=5)
 
         for epoch in range(epochs):
             running_train_loss = self.training_model(e_model, e_loader)
-            running_val_loss = self.validating_model(e_model, e_loader)
+            # running_val_loss = self.validating_model(e_model, e_loader)
+            running_val_loss = 0
 
             avg_loss_train = running_train_loss / len(e_loader.train)
             avg_loss_val = running_val_loss / len(e_loader.val)
+            # avg_loss_val = 0
 
             print(
                 f"Epoch {epoch + 1}, Train Loss: {avg_loss_train}, Val Loss: {avg_loss_val}")
@@ -230,17 +231,14 @@ class ModelManager():
             hist = e_model.history
             last_epoch = max(hist.keys())
             last_epoch += 1
-
             hist[last_epoch] = {}
             hist[last_epoch]['train_loss'] = running_train_loss / len(e_loader.train)
             hist[last_epoch]['val_loss'] = running_val_loss / len(e_loader.val)
+            # hist[last_epoch]['val_loss'] = 0 / len(e_loader.val)
             e_model.history = hist
-
             if early_stopping(avg_loss_val):
                 print("Ранняя остановка! Обучение завершено.")
                 break  # Прерываем обучение
-
-            # step_scheduler.step()  # Уменьшает каждые N эпох
             plateau_scheduler.step(avg_loss_val)  # Дополнительно уменьшает, если застряли
 
     def training_model(self, e_model: encapsulated_data.EncapsulatedModel,
@@ -281,12 +279,12 @@ class ModelManager():
             added_noise = added_noise.to(device)
 
             with torch.cuda.amp.autocast():  # Включаем AMP
-                guidance_prob = 0.15  # 15% примеров будут безусловными
-                if random.random() < guidance_prob:
-                    predicted_noise = model(xt, None, time_emb, None)  # Безусловное предсказание
-                else:
-                    predicted_noise = model(xt, text_embs, time_emb, attention_mask)  # Условное предсказание
-                # predicted_noise = model(xt, text_embs, time_emb, attention_mask)
+                # guidance_prob = 0.15  # 15% примеров будут безусловными
+                # if random.random() < guidance_prob:
+                #     predicted_noise = model(xt, None, time_emb, None)  # Безусловное предсказание
+                # else:
+                #     predicted_noise = model(xt, text_embs, time_emb, attention_mask)  # Условное предсказание
+                predicted_noise = model(xt, text_embs, time_emb, attention_mask)
                 loss_train = criterion(predicted_noise, added_noise)  # сравниваем с добавленным шумом
             running_loss += loss_train.item()
 
@@ -302,7 +300,7 @@ class ModelManager():
 
             i += 1
             end_time = time.time()
-            print(f"Процентов {(i / len(train_loader)) * 100}, {end_time - start_time}")
+            print(f"Процентов {(i / len(train_loader)) * 100}, {end_time - start_time}, loss: {loss_train.item():.4f}")
 
             if i % log_interval == 0:
                 print(f"Batch: {i}, Current Loss: {loss_train.item():.4f}")
@@ -403,9 +401,7 @@ class ModelManager():
                     f"Процентов {(i / len(test_loader)) * 100}, test loss: {loss_test.item()}, {end_time - start_time}")
             end_time_ep = time.time()
         print(f'Тест. заверш. {end_time_ep - start_time_ep}')
-        # accuracy = 100 * correct / total
         avg_test_loss = test_loss / len(test_loader)
-        # print(f'Test Accuracy: {accuracy:.2f}%, Test Loss: {avg_test_loss:.4f}')
         print(f'Test Loss: {avg_test_loss:.4f}')
 
     def save_my_model_in_middle_train(self, e_model: encapsulated_data.EncapsulatedModel, model_dir, model_file):
@@ -433,7 +429,7 @@ class ModelManager():
         checkpoint = torch.load(model_filepath)
         e_model = encapsulated_data.EncapsulatedModel()
 
-        model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM, 1, 4, hyperparams.BATCH_SIZE).to(
+        model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM, 1, 2, hyperparams.BATCH_SIZE).to(
             device)
         model.load_state_dict(checkpoint['model_state_dict'])
         cross_attn_params = []
@@ -445,7 +441,7 @@ class ModelManager():
                 other_params.append(param)  # Остальные параметры
         optimizer = optim.AdamW([
             {"params": other_params, "lr": hyperparams.LR},  # Обычный LR
-            {"params": cross_attn_params, "lr": 3.33e-5}  # Уменьшенный LR для Cross-Attention
+            {"params": cross_attn_params, "lr": hyperparams.LR * 0.3}  # Уменьшенный LR для Cross-Attention
         ], weight_decay=1e-4)
         # optimizer = optim.Adam(model.parameters(), lr=hyperparams.LR, weight_decay=1e-4)
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -488,16 +484,16 @@ class ModelManager():
             for step in tqdm(range(hyperparams.T - 1, -1, -1), colour='white'):
                 t_i = self.get_time_embedding(t_tensor[step], hyperparams.TIME_EMB_DIM)
                 t_i = t_i.to(device)
-                # predicted_noise = model(x_t, text_embedding, t_i, attn_mask)
+                predicted_noise = model(x_t, text_embedding, t_i, attn_mask)
 
                 # predicted_noise = ema.ema_model(x_t, text_embedding, t_i, attn_mask)
                 # if step == 1:
                 # self.show_image(predicted_noise[5])
 
-                guidance_scale = 7.5  # Усиление текстового сигнала
-                predicted_noise_uncond = model(x_t, None, t_i, None) # Безусловное предсказание
-                predicted_noise_cond = model(x_t, text_embedding, t_i, attn_mask)  # Условное предсказание
-                predicted_noise = guidance_scale * predicted_noise_cond + (1 - guidance_scale) * predicted_noise_uncond
+                # guidance_scale = 0.5  # Усиление текстового сигнала
+                # predicted_noise_uncond = model(x_t, None, t_i, None) # Безусловное предсказание
+                # predicted_noise_cond = model(x_t, text_embedding, t_i, attn_mask)  # Условное предсказание
+                # predicted_noise = guidance_scale * predicted_noise_cond + (1 - guidance_scale) * predicted_noise_uncond
 
                 x_t = (1 / torch.sqrt(self.a[step])) * (
                         x_t - ((1 - self.a[step]) / (torch.sqrt(1 - self.a_bar[step]))) * predicted_noise)
