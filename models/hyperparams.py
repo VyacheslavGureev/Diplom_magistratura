@@ -1,7 +1,7 @@
 # --- Изменение этого могут затронуть модель, менеджер и даталодер!!! ---
 IMG_SIZE = 32  # Размер изображений
 BATCH_SIZE = 16
-LR = 0.00005
+LR = 0.0001
 
 T = 1000  # Количество шагов в диффузии
 
@@ -18,6 +18,6 @@ CURRENT_MODEL_NAME = '32p_mnist.pth'
 CURRENT_MODEL_DIR = 'trained/'
 
 # --- Гиперпараметры для дебага ---
-OGRANICHITEL = True
-# OGRANICHITEL = False
-N_OGRANICHITEL = 1000
+# OGRANICHITEL = True
+OGRANICHITEL = False
+N_OGRANICHITEL = 500

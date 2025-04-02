@@ -77,7 +77,7 @@ class EncapsulatedModel:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(self.device)
 
-        self.model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM, 1, 2, hyperparams.BATCH_SIZE)
+        self.model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM, 1, 4, hyperparams.BATCH_SIZE)
         self.model.to(self.device)
 
         self.ema = EMA(self.model, self.device)

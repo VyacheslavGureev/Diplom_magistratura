@@ -422,7 +422,7 @@ class ModelManager():
         checkpoint = torch.load(model_filepath)
         e_model = encapsulated_data.EncapsulatedModel()
 
-        model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM, 1, 2, hyperparams.BATCH_SIZE).to(
+        model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM, 1, 4, hyperparams.BATCH_SIZE).to(
             device)
         model.load_state_dict(checkpoint['model_state_dict'])
         cross_attn_params = []

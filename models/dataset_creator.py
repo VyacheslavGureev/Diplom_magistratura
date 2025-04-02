@@ -59,7 +59,8 @@ class MNISTTextDataset(Dataset):
 
     def __getitem__(self, idx):
         image, label = self.mnist[idx]  # Получаем картинку и её метку (0-9)
-        caption = self.TEXT_DESCRIPTIONS[label][random.randint(0, 3)]  # Берем описание цифры
+        # caption = self.TEXT_DESCRIPTIONS[label][random.randint(0, 3)]  # Берем описание цифры
+        caption = self.TEXT_DESCRIPTIONS[label][1]  # Берем описание цифры
         # caption = self.add_label_smoothing(caption, prob=0.20)  # 20% слов заменяются
         tokens = self.tokenizer(
             caption,
