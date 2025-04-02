@@ -20,4 +20,4 @@ CURRENT_MODEL_DIR = 'trained/'
 # --- Гиперпараметры для дебага ---
 OGRANICHITEL = True
 # OGRANICHITEL = False
-N_OGRANICHITEL = 500
+N_OGRANICHITEL = 1000

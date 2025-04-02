@@ -96,12 +96,12 @@ class ModelManager():
         self.device = device
 
         # Максимально стандартное линейное расписание
-        # beta_start = 1e-4
-        # beta_end = 0.02
-        # self.create_diff_sheduler_linear(hyperparams.T, beta_start, beta_end)
+        beta_start = 1e-4
+        beta_end = 0.02
+        self.create_diff_sheduler_linear(hyperparams.T, beta_start, beta_end)
 
-        s = 0.008
-        self.create_diff_scheduler_cosine(hyperparams.T, s)
+        # s = 0.008
+        # self.create_diff_scheduler_cosine(hyperparams.T, s)
 
     def create_diff_sheduler_linear(self, num_time_steps, beta_start, beta_end):
         # Precomputing beta, alpha, and alpha_bar for all t's.
@@ -211,11 +211,8 @@ class ModelManager():
 
     def train_model(self, e_model: encapsulated_data.EncapsulatedModel,
                     e_loader: encapsulated_data.EncapsulatedDataloaders, epochs):
-
         plateau_scheduler = lr_scheduler.ReduceLROnPlateau(e_model.optimizer, mode='min', factor=0.5, patience=3)
-
         early_stopping = EarlyStopping(patience=5)
-
         for epoch in range(epochs):
             running_train_loss = self.training_model(e_model, e_loader)
             # running_val_loss = self.validating_model(e_model, e_loader)
@@ -223,18 +220,14 @@ class ModelManager():
 
             avg_loss_train = running_train_loss / len(e_loader.train)
             avg_loss_val = running_val_loss / len(e_loader.val)
-            # avg_loss_val = 0
-
             print(
                 f"Epoch {epoch + 1}, Train Loss: {avg_loss_train}, Val Loss: {avg_loss_val}")
-
             hist = e_model.history
             last_epoch = max(hist.keys())
             last_epoch += 1
             hist[last_epoch] = {}
             hist[last_epoch]['train_loss'] = running_train_loss / len(e_loader.train)
             hist[last_epoch]['val_loss'] = running_val_loss / len(e_loader.val)
-            # hist[last_epoch]['val_loss'] = 0 / len(e_loader.val)
             e_model.history = hist
             if early_stopping(avg_loss_val):
                 print("Ранняя остановка! Обучение завершено.")
@@ -441,7 +434,7 @@ class ModelManager():
                 other_params.append(param)  # Остальные параметры
         optimizer = optim.AdamW([
             {"params": other_params, "lr": hyperparams.LR},  # Обычный LR
-            {"params": cross_attn_params, "lr": hyperparams.LR * 0.3}  # Уменьшенный LR для Cross-Attention
+            {"params": cross_attn_params, "lr": hyperparams.LR}  # Уменьшенный LR для Cross-Attention
         ], weight_decay=1e-4)
         # optimizer = optim.Adam(model.parameters(), lr=hyperparams.LR, weight_decay=1e-4)
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])

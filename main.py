@@ -17,13 +17,12 @@ import models.manager as manager
 import models.encapsulated_data as encapsulated_data
 
 
-
-
 # Функция для остановки
 def stop_training_func():
     global STOP
     STOP = True
     print("Остановка обучения!")
+
 
 # Простое окно с кнопкой для остановки
 class StopTrainingWindow(QWidget):
@@ -40,8 +39,6 @@ class StopTrainingWindow(QWidget):
         layout.addWidget(self.stop_button)
 
         self.setLayout(layout)
-
-
 
 
 def main():
@@ -100,8 +97,8 @@ def neural_func():
                                                          device)
         print('Загрузка завершена!')
         # text = "Это цифра ноль"
-        # text = "Изображена единица"
-        text = "Нарисована цифра два"
+        text = "Изображена единица"
+        # text = "Нарисована цифра два"
         # text = "На картинке цифра три"
         # text = "Четыре, написанное от руки"
         # text = "4"
@@ -118,9 +115,7 @@ def neural_func():
         # with open("trained/e_loader.pkl", "wb") as f:
         #     pickle.dump(ed, f)
         # Загружаем объект из файла
-        with open("trained/e_loader.pkl", "rb") as f:
-            ed = pickle.load(f)
-
+        ed = dc.load_data_from_file("trained/e_loader.pkl")
         if mode == 'load_test':
             em = model_manager.load_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR,
                                                              hyperparams.CURRENT_MODEL_NAME, device)

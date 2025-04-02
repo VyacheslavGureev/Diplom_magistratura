@@ -60,7 +60,7 @@ class MNISTTextDataset(Dataset):
     def __getitem__(self, idx):
         image, label = self.mnist[idx]  # Получаем картинку и её метку (0-9)
         caption = self.TEXT_DESCRIPTIONS[label][random.randint(0, 3)]  # Берем описание цифры
-        caption = self.add_label_smoothing(caption, prob=0.20)  # 20% слов заменяются
+        # caption = self.add_label_smoothing(caption, prob=0.20)  # 20% слов заменяются
         tokens = self.tokenizer(
             caption,
             return_tensors="pt",
@@ -74,7 +74,7 @@ class MNISTTextDataset(Dataset):
             # if random.random() < self.drop_conditioning_p:
             #     text_emb_reduced = torch.zeros_like(text_emb_reduced)  # Обнуляем текстовый эмбеддинг
             #     attention_mask = torch.zeros_like(attention_mask)
-        text_emb_reduced = F.normalize(text_emb_reduced, p=2, dim=-1)
+        # text_emb_reduced = F.normalize(text_emb_reduced, p=2, dim=-1)
         return image, text_emb_reduced, attention_mask
 
 
@@ -96,15 +96,7 @@ class ImageTextDataset(Dataset):
         self.text_encoder = text_encoder
         self.max_len_tokens = max_len_tokens
         self.image_filenames = list(self.captions.keys())  # Файлы картинок
-
-        # self.maxxxx = 0
-        # for i in self.image_filenames:
-        #     for c in self.captions[i]:
-        #         tokens = self.tokenizer(c, return_tensors="pt", padding=True, truncation=True)
-        #         if self.maxxxx < tokens.data['input_ids'].shape[1]:
-        #             self.maxxxx = tokens.data['input_ids'].shape[1]
-        # print(self.maxxxx)
-        # print('maxxx') (максимальный размер кол-ва токенов для этого датасета = 43 (поэтому max_len_tokens = 50))
+        # 43 - max len
 
     def __len__(self):
         return len(self.image_filenames)
@@ -133,7 +125,6 @@ class ImageTextDataset(Dataset):
 
 
 def get_text_emb(text):
-    # Загружаем CLIP
     tokenizer = load_data_from_file('datas/embedders/tokenizer.pkl')
     text_encoder = load_data_from_file('datas/embedders/text_encoder.pkl')
     tokens = tokenizer(
@@ -156,16 +147,8 @@ def create_dataset(image_folder, captions_file):
         transforms.ToTensor(),  # Переводим в тензор (C, H, W)
         transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # Нормализация
     ])
-
-    # Загружаем CLIP
-    # tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
-    # text_encoder = CLIPTextModel.from_pretrained("openai/clip-vit-base-patch32")
-
-    # Загружаем CLIP
     tokenizer = load_data_from_file('datas/embedders/tokenizer.pkl')
     text_encoder = load_data_from_file('datas/embedders/text_encoder.pkl')
-
-    # Создаём датасет
     dataset = ImageTextDataset(
         image_folder=image_folder,
         captions_file=captions_file,
@@ -184,7 +167,6 @@ def create_dataset_mnist(folder, train_flag):
         transforms.ToTensor(),  # Переводим в тензор (C, H, W)
         transforms.Normalize(mean=[0.5], std=[0.5])  # Нормализация (один канал)
     ])
-    # Загружаем CLIP
     tokenizer = load_data_from_file('datas/embedders/tokenizer.pkl')
     text_encoder = load_data_from_file('datas/embedders/text_encoder.pkl')
     dataset = MNISTTextDataset(root=folder,
@@ -197,7 +179,6 @@ def create_dataset_mnist(folder, train_flag):
 
 
 def load_data_from_file(filepath):
-    # Загружаем объект из файла
     with open(filepath, "rb") as f:
         obj = pickle.load(f)
     print(f'Объект {obj} успешно загружен из {filepath}')

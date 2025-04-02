@@ -2,109 +2,109 @@ import torch
 import torch.nn as nn
 
 
-class CrossAttentionMultiHead(nn.Module):
-    def __init__(self, text_dim, img_dim, num_heads=4, dropout=0.1):
-        super().__init__()
-        self.num_heads = num_heads
-        self.scale = (img_dim // num_heads) ** -0.5
-
-        # Проекции для изображения
-        self.to_q = nn.Linear(img_dim, img_dim)
-
-        # Проекции для текста
-        self.to_kv = nn.Linear(text_dim, img_dim * 2)
-
-        # Нормализация
-        self.norm = nn.LayerNorm(img_dim)
-        self.dropout = nn.Dropout(dropout)
-
-        # Инициализация
-        nn.init.xavier_uniform_(self.to_q.weight, gain=0.02)
-        nn.init.xavier_uniform_(self.to_kv.weight, gain=0.02)
-        nn.init.zeros_(self.to_q.bias)
-        nn.init.zeros_(self.to_kv.bias)
-
-    def forward(self, x, text_emb, mask=None):
-        B, C, H, W = x.shape
-        x_flat = x.permute(0, 2, 3, 1).view(B, H * W, C)  # [B, H*W, C]
-
-        # Query из изображения
-        q = self.to_q(x_flat)
-
-        # Key/Value из текста
-        k, v = self.to_kv(text_emb).chunk(2, dim=-1)
-
-        # Multi-head attention
-        q = q.view(B, -1, self.num_heads, C // self.num_heads).transpose(1, 2)  # [B, nh, H*W, C//nh]
-        k = k.view(B, -1, self.num_heads, C // self.num_heads).transpose(1, 2)  # [B, nh, L, C//nh]
-        v = v.view(B, -1, self.num_heads, C // self.num_heads).transpose(1, 2)  # [B, nh, L, C//nh]
-
-        # Attention scores
-        attn = (q @ k.transpose(-2, -1)) * self.scale  # [B, nh, H*W, L]
-
-        # Применение маски (если она есть)
-        if mask is not None:
-            # mask: [B, L] → [B, 1, 1, L] (подходит для broadcating)
-            mask = mask[:, None, None, :].to(attn.dtype)
-            attn = attn.masked_fill(mask == 0, float(-10000.0))  # -inf → softmax → 0
-
-        attn = attn.softmax(dim=-1)
-        attn = self.dropout(attn)
-
-        out = (attn @ v).transpose(1, 2).reshape(B, H * W, C)
-        # out = x_flat + 1.0 * out  # Малый вес для стабильности (0,5 пока подходит)
-        out = out.permute(0, 2, 1).view(B, C, H, W)
-        return out
-
-
 # class CrossAttentionMultiHead(nn.Module):
-#     def __init__(self, text_emb_dim, channels_current_layer, batch_size):
+#     def __init__(self, text_dim, img_dim, num_heads=4, dropout=0.1):
 #         super().__init__()
-#         self.bs = batch_size
-#         num_heads = 4
 #         self.num_heads = num_heads
-#         self.scale = (channels_current_layer // num_heads) ** -0.5  # Масштабируем по размеру одной головы
-#         # Приведение текстового эмбеддинга к C
-#         self.Wq = nn.Linear(channels_current_layer, channels_current_layer)  # Query из изображения
-#         self.Wk = nn.Linear(text_emb_dim, channels_current_layer)  # Key из текста
-#         self.Wv = nn.Linear(text_emb_dim, channels_current_layer)  # Value из текста
+#         self.scale = (img_dim // num_heads) ** -0.5
 #
-#         # Этот и подобный код инициализирует разные нормировки в зависимости от размера батча
-#         if self.bs < 16:
-#             self.norm = nn.GroupNorm(num_groups=8, num_channels=channels_current_layer, affine=True)
-#         else:
-#             self.norm = nn.BatchNorm2d(num_features=channels_current_layer)
+#         # Проекции для изображения
+#         self.to_q = nn.Linear(img_dim, img_dim)
 #
-#         self.attn_dropout = nn.Dropout(p=0.1)
-#         self.output_dropout = nn.Dropout(p=0.1)
+#         # Проекции для текста
+#         self.to_kv = nn.Linear(text_dim, img_dim * 2)
 #
-#     def forward(self, x, text_emb, attention_mask):
+#         # Нормализация
+#         self.norm = nn.LayerNorm(img_dim)
+#         self.dropout = nn.Dropout(dropout)
+#
+#         # Инициализация
+#         nn.init.xavier_uniform_(self.to_q.weight, gain=0.02)
+#         nn.init.xavier_uniform_(self.to_kv.weight, gain=0.02)
+#         nn.init.zeros_(self.to_q.bias)
+#         nn.init.zeros_(self.to_kv.bias)
+#
+#     def forward(self, x, text_emb, mask=None):
 #         B, C, H, W = x.shape
-#         x_flat = x.view(B, C, H * W).permute(0, 2, 1)  # (B, H*W, C)
-#         # Вычисляем Q, K, V
-#         Q = self.Wq(x_flat)  # (B, H*W, C)
-#         K = self.Wk(text_emb)  # (B, T, C)
-#         V = self.Wv(text_emb)  # (B, T, C)
-#         # Разделение на головы и масштабирование
-#         Q = Q.view(B, -1, self.num_heads, C // self.num_heads).transpose(1, 2)  # (B, num_heads, H*W, C//num_heads)
-#         K = K.view(B, -1, self.num_heads, C // self.num_heads).transpose(1, 2)  # (B, num_heads, T, C//num_heads)
-#         V = V.view(B, -1, self.num_heads, C // self.num_heads).transpose(1, 2)  # (B, num_heads, T, C//num_heads)
-#         # Attention
-#         attn_scores = torch.matmul(Q, K.transpose(-2, -1)) * self.scale  # (B, num_heads, H*W, T)
+#         x_flat = x.permute(0, 2, 3, 1).view(B, H * W, C)  # [B, H*W, C]
 #
-#         attention_mask = attention_mask[:, None, None, :].expand_as(attn_scores)  # (B, 1, 1, T)
-#         attn_scores = attn_scores.masked_fill(attention_mask == 0, float('-inf'))
+#         # Query из изображения
+#         q = self.to_q(x_flat)
 #
-#         attn_probs = torch.softmax(attn_scores, dim=-1)
-#         attn_probs = self.attn_dropout(attn_probs)
-#         attn_out = torch.matmul(attn_probs, V)  # (B, num_heads, H*W, C//num_heads)
-#         attn_out = self.output_dropout(attn_out)
-#         # Объединяем головы
-#         attn_out = attn_out.transpose(1, 2).reshape(B, H * W, C)  # (B, H*W, C)
-#         attn_out = attn_out.permute(0, 2, 1).view(B, C, H,
-#                                                   W)  # (B, C, H, W) (H и W не меняются, поэтому делаем преобразование без доп. проверок)
-#         attn_out = self.norm(attn_out)
-#         return attn_out
+#         # Key/Value из текста
+#         k, v = self.to_kv(text_emb).chunk(2, dim=-1)
+#
+#         # Multi-head attention
+#         q = q.view(B, -1, self.num_heads, C // self.num_heads).transpose(1, 2)  # [B, nh, H*W, C//nh]
+#         k = k.view(B, -1, self.num_heads, C // self.num_heads).transpose(1, 2)  # [B, nh, L, C//nh]
+#         v = v.view(B, -1, self.num_heads, C // self.num_heads).transpose(1, 2)  # [B, nh, L, C//nh]
+#
+#         # Attention scores
+#         attn = (q @ k.transpose(-2, -1)) * self.scale  # [B, nh, H*W, L]
+#
+#         # Применение маски (если она есть)
+#         if mask is not None:
+#             # mask: [B, L] → [B, 1, 1, L] (подходит для broadcating)
+#             mask = mask[:, None, None, :].to(attn.dtype)
+#             attn = attn.masked_fill(mask == 0, float(-10000.0))  # -inf → softmax → 0
+#
+#         attn = attn.softmax(dim=-1)
+#         attn = self.dropout(attn)
+#
+#         out = (attn @ v).transpose(1, 2).reshape(B, H * W, C)
+#         # out = x_flat + 1.0 * out  # Малый вес для стабильности (0,5 пока подходит)
+#         out = out.permute(0, 2, 1).view(B, C, H, W)
+#         return out
+
+
+class CrossAttentionMultiHead(nn.Module):
+    def __init__(self, text_emb_dim, channels_current_layer, batch_size):
+        super().__init__()
+        self.bs = batch_size
+        num_heads = 4
+        self.num_heads = num_heads
+        self.scale = (channels_current_layer // num_heads) ** -0.5  # Масштабируем по размеру одной головы
+        # Приведение текстового эмбеддинга к C
+        self.Wq = nn.Linear(channels_current_layer, channels_current_layer)  # Query из изображения
+        self.Wk = nn.Linear(text_emb_dim, channels_current_layer)  # Key из текста
+        self.Wv = nn.Linear(text_emb_dim, channels_current_layer)  # Value из текста
+
+        # Этот и подобный код инициализирует разные нормировки в зависимости от размера батча
+        if self.bs < 16:
+            self.norm = nn.GroupNorm(num_groups=8, num_channels=channels_current_layer, affine=True)
+        else:
+            self.norm = nn.BatchNorm2d(num_features=channels_current_layer)
+
+        self.attn_dropout = nn.Dropout(p=0.1)
+        self.output_dropout = nn.Dropout(p=0.1)
+
+    def forward(self, x, text_emb, attention_mask):
+        B, C, H, W = x.shape
+        x_flat = x.view(B, C, H * W).permute(0, 2, 1)  # (B, H*W, C)
+        # Вычисляем Q, K, V
+        Q = self.Wq(x_flat)  # (B, H*W, C)
+        K = self.Wk(text_emb)  # (B, T, C)
+        V = self.Wv(text_emb)  # (B, T, C)
+        # Разделение на головы и масштабирование
+        Q = Q.view(B, -1, self.num_heads, C // self.num_heads).transpose(1, 2)  # (B, num_heads, H*W, C//num_heads)
+        K = K.view(B, -1, self.num_heads, C // self.num_heads).transpose(1, 2)  # (B, num_heads, T, C//num_heads)
+        V = V.view(B, -1, self.num_heads, C // self.num_heads).transpose(1, 2)  # (B, num_heads, T, C//num_heads)
+        # Attention
+        attn_scores = torch.matmul(Q, K.transpose(-2, -1)) * self.scale  # (B, num_heads, H*W, T)
+
+        attention_mask = attention_mask[:, None, None, :].expand_as(attn_scores)  # (B, 1, 1, T)
+        attn_scores = attn_scores.masked_fill(attention_mask == 0, float('-inf'))
+
+        attn_probs = torch.softmax(attn_scores, dim=-1)
+        attn_probs = self.attn_dropout(attn_probs)
+        attn_out = torch.matmul(attn_probs, V)  # (B, num_heads, H*W, C//num_heads)
+        attn_out = self.output_dropout(attn_out)
+        # Объединяем головы
+        attn_out = attn_out.transpose(1, 2).reshape(B, H * W, C)  # (B, H*W, C)
+        attn_out = attn_out.permute(0, 2, 1).view(B, C, H,
+                                                  W)  # (B, C, H, W) (H и W не меняются, поэтому делаем преобразование без доп. проверок)
+        attn_out = self.norm(attn_out)
+        return attn_out
 
 
 class SelfAttentionBlock(nn.Module):
@@ -214,15 +214,18 @@ class DeepBottleneck(nn.Module):
         super().__init__()
         self.batch_size = batch_size
         self.deep_block_1 = ResNetBlock(in_C, out_C, time_emb_dim, self.batch_size)
-        self.cross_attn_multi_head_1 = CrossAttentionMultiHead(text_emb_dim, out_C)
+        self.cross_attn_multi_head_1 = CrossAttentionMultiHead(text_emb_dim, out_C, self.batch_size)
         # self.deep_block_2 = ResNetBlock(512, 512, time_emb_dim)
+        # self.residual = nn.Conv2d(in_C, out_C, kernel_size=1)
 
     # здесь правильный порядок преобразований!!!
     def forward(self, x, text_emb, time_emb, attention_mask):
+        # r = x
         x = self.deep_block_1(x, time_emb)
         if text_emb != None:
             x = self.cross_attn_multi_head_1(x, text_emb, attention_mask)
         # x = self.deep_block_2(x, time_emb)
+        # x =  x + self.residual(r)
         return x
 
 
@@ -284,7 +287,7 @@ class MyUNet(nn.Module):
                                      self.batch_size)
 
         self.cross_attn_1 = CrossAttentionMultiHead(txt_emb_dim,
-                                                    512 // self.channels_div)
+                                                    512 // self.channels_div, self.batch_size)
 
         self.up_2 = nn.Sequential(
             nn.ConvTranspose2d(512 // self.channels_div, 384 // self.channels_div, kernel_size=3, stride=2, padding=1,
@@ -301,7 +304,7 @@ class MyUNet(nn.Module):
                                            self.batch_size)
 
         self.cross_attn_2 = CrossAttentionMultiHead(txt_emb_dim,
-                                                    384 // self.channels_div)
+                                                    384 // self.channels_div, self.batch_size)
 
         self.up_3 = nn.Sequential(
             nn.ConvTranspose2d(384 // self.channels_div, 192 // self.channels_div, kernel_size=3, stride=2, padding=1,

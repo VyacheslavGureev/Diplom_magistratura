@@ -91,7 +91,7 @@ class EncapsulatedModel:
                 other_params.append(param)  # Остальные параметры
         self.optimizer = optim.AdamW([
             {"params": other_params, "lr": hyperparams.LR},  # Обычный LR
-            {"params": cross_attn_params, "lr": hyperparams.LR * 0.3}  # Уменьшенный LR для Cross-Attention
+            {"params": cross_attn_params, "lr": hyperparams.LR}  # Уменьшенный LR для Cross-Attention
         ], weight_decay=1e-4)
 
         self.criterion = nn.MSELoss()
