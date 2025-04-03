@@ -17,30 +17,6 @@ import models.manager as manager
 import models.encapsulated_data as encapsulated_data
 
 
-# Функция для остановки
-def stop_training_func():
-    global STOP
-    STOP = True
-    print("Остановка обучения!")
-
-
-# Простое окно с кнопкой для остановки
-class StopTrainingWindow(QWidget):
-    def __init__(self):
-        super().__init__()
-
-        self.setWindowTitle("Остановка обучения")
-        self.setGeometry(100, 100, 200, 100)
-
-        layout = QVBoxLayout()
-
-        self.stop_button = QPushButton("Остановить обучение", self)
-        self.stop_button.clicked.connect(stop_training_func)
-        layout.addWidget(self.stop_button)
-
-        self.setLayout(layout)
-
-
 def main():
     pass
     # app = QtWidgets.QApplication(sys.argv)
@@ -81,9 +57,9 @@ def neural_func():
     # print('test')
 
     # mode = 'img'  #
-    # mode = 'create_train_test_save'  #
+    mode = 'create_train_test_save'  #
     # mode = 'load_train_test_save'  #
-    mode = 'load_gen'  #
+    # mode = 'load_gen'  #
     # mode = 'debug'  #
 
     # mode = 'create_train_save'  #
@@ -101,7 +77,7 @@ def neural_func():
         # text = "Нарисована цифра два"
         # text = "На картинке цифра три"
         # text = "Четыре, написанное от руки"
-        text = "2"
+        text = "0"
         # text = "Цифра шесть, нарисованная от руки"
         # text = "На изображении семерка"
         # text = "Нарисована цифра восемь"

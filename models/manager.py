@@ -112,6 +112,17 @@ class ModelManager():
         self.a = self.a.to(self.device)
         self.a_bar = self.a_bar.to(self.device)
 
+        # print(f"Min beta: {self.b.min().item()}")
+        # print(f"Max beta: {self.b.max().item()}")
+        # import matplotlib.pyplot as plt
+        # plt.plot(self.b.cpu().numpy(), label="Beta")
+        # plt.xlabel("Timestep")
+        # plt.ylabel("Beta")
+        # plt.title("Cosine Schedule for Beta")
+        # plt.legend()
+        # plt.show()
+        # plt.pause(3600)
+
     def create_diff_scheduler_cosine(self, T, s):
         """Генерирует b_t на основе косинусного расписания"""
         """Генерирует b_t на основе косинусного расписания"""

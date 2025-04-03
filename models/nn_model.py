@@ -215,7 +215,6 @@ class DeepBottleneck(nn.Module):
         self.batch_size = batch_size
         self.deep_block_1 = ResNetBlock(in_C, out_C, time_emb_dim, self.batch_size)
         self.cross_attn_multi_head_1 = CrossAttentionMultiHead(text_emb_dim, out_C, self.batch_size)
-        # self.deep_block_2 = ResNetBlock(512, 512, time_emb_dim)
         # self.residual = nn.Conv2d(in_C, out_C, kernel_size=1)
 
     # здесь правильный порядок преобразований!!!
@@ -224,8 +223,26 @@ class DeepBottleneck(nn.Module):
         x = self.deep_block_1(x, time_emb)
         if text_emb != None:
             x = self.cross_attn_multi_head_1(x, text_emb, attention_mask)
-        # x = self.deep_block_2(x, time_emb)
         # x =  x + self.residual(r)
+        return x
+
+
+class SoftUpsample(nn.Module):
+    def __init__(self, in_C, out_C):
+        super().__init__()
+        # Увеличиваем размер изображения в 2 раза, можем уменьшить кол-во каналов
+        self.very_soft_up = nn.Sequential(
+            # Более мягкая версия увеличения в 2 раза, помогающая убрать шахматные артефакты
+            nn.ConvTranspose2d(in_C, out_C, kernel_size=3, stride=2, padding=1,
+                               output_padding=1),
+            # Сглаживающая свёртка
+            nn.Conv2d(out_C, out_C, kernel_size=3, padding=1, stride=1),
+            # Максимальная мягкость
+            nn.SiLU()
+        )
+
+    def forward(self, x):
+        x = self.very_soft_up(x)
         return x
 
 
@@ -235,128 +252,394 @@ class MyUNet(nn.Module):
                  time_emb_dim,
                  orig_img_channels,
                  channels_div,
-                 batch_size):
+                 batch_size,
+                 config
+                 ):
         super().__init__()
-
-        self.batch_size = batch_size
+        self.config = config
         self.orig_img_channels = orig_img_channels
-        self.channels_div = channels_div  # во сколько раз делим кол-во каналов от оригинального кол-ва
+        self.channels_div = channels_div
 
-        # --- Downsampling (Сжатие) ---
-        self.prepare = nn.Conv2d(self.orig_img_channels, 64 // self.channels_div, kernel_size=1, padding=0,
+        out_C = self.config['DOWN'][0]['in_C']
+        skip_conn_C = self.config['DOWN'][0]['out_C']
+
+        self.prepare = nn.Conv2d(self.orig_img_channels, out_C, kernel_size=1, padding=0,
                                  stride=1)  # Не меняем изображение, просто подготавливаем его для дальнейшей обработки, увеличивая кол-во каналов (линейное преобразование)
-        self.encoder_1 = ResNetBlock(64 // self.channels_div,
-                                     64 // self.channels_div,
-                                     time_emb_dim,
-                                     self.batch_size)
-        self.down_conv_1 = nn.Conv2d(64 // self.channels_div, 64 // self.channels_div, kernel_size=3, padding=1,
-                                     stride=2)  # уменьшаем изображение в 2 раза (для диффузионок)
 
-        self.encoder_2 = ResNetMiddleBlock(64 // self.channels_div,
-                                           128 // self.channels_div,
-                                           time_emb_dim,
-                                           self.batch_size)
-        self.down_conv_2 = nn.Conv2d(128 // self.channels_div, 128 // self.channels_div, kernel_size=3, padding=1,
-                                     stride=2)  # уменьшаем изображение в 2 раза (для диффузионок)
+        self.down_blocks = nn.ModuleList()
+        down_blocks = self.config['DOWN']
+        for db in down_blocks:
+            self.down_blocks.append(
+                self.create_down_block(db['in_C'], db['out_C'], time_emb_dim, batch_size, db['SA']))
+            self.down_blocks.append(
+                nn.Conv2d(db['out_C'], db['out_C'], kernel_size=3, padding=1, stride=2))  # уменьшение размера в 2 раза
 
-        self.encoder_3 = ResNetBlock(128 // self.channels_div,
-                                     256 // self.channels_div,
-                                     time_emb_dim,
-                                     self.batch_size)
-        self.down_conv_3 = nn.Conv2d(256 // self.channels_div, 256 // self.channels_div, kernel_size=3, padding=1,
-                                     stride=2)  # уменьшаем изображение в 2 раза (для диффузионок)
+        self.bottleneck = nn.ModuleList()
+        bottleneck = self.config['BOTTLENECK']
+        for bn in bottleneck:
+            self.bottleneck.append(
+                self.create_bottleneck_block(bn['in_C'], bn['out_C'], txt_emb_dim, time_emb_dim, batch_size))
 
-        self.deep_bottleneck = DeepBottleneck(256 // self.channels_div,
-                                              512 // self.channels_div,
-                                              txt_emb_dim,
-                                              time_emb_dim,
-                                              self.batch_size)
+        self.up_blocks = nn.ModuleList()
+        up_blocks = self.config['UP']
+        for ub in up_blocks:
+            self.up_blocks.append(SoftUpsample(ub['in_C'], ub['out_C']))
+            self.up_blocks.append(
+                self.create_up_block(ub['out_C'], ub['out_C'], ub['sc_C'], time_emb_dim, batch_size,
+                                     ub['SA']))
+            if ub['CA']:
+                self.up_blocks.append(CrossAttentionMultiHead(txt_emb_dim, ub['out_C'], batch_size))
 
-        self.up_1 = nn.Sequential(
-            nn.ConvTranspose2d(512 // self.channels_div, 512 // self.channels_div, kernel_size=3, stride=2, padding=1,
-                               output_padding=1),
-            # Более мягкая версия увеличения в 2 раза, помогающая убрать шахматные артефакты
-            nn.Conv2d(512 // self.channels_div, 512 // self.channels_div, kernel_size=3, padding=1, stride=1),
-            # Сглаживающая свёртка
-            nn.SiLU()  # Максимальная мягкость
-        )
-
-        self.decoder_1 = ResNetBlock(256 // self.channels_div + 512 // self.channels_div,
-                                     512 // self.channels_div,
-                                     time_emb_dim,
-                                     self.batch_size)
-
-        self.cross_attn_1 = CrossAttentionMultiHead(txt_emb_dim,
-                                                    512 // self.channels_div, self.batch_size)
-
-        self.up_2 = nn.Sequential(
-            nn.ConvTranspose2d(512 // self.channels_div, 384 // self.channels_div, kernel_size=3, stride=2, padding=1,
-                               output_padding=1),
-            # Более мягкая версия увеличения в 2 раза, помогающая убрать шахматные артефакты
-            nn.Conv2d(384 // self.channels_div, 384 // self.channels_div, kernel_size=3, padding=1, stride=1),
-            # Сглаживающая свёртка
-            nn.SiLU()  # Максимальная мягкость
-        )
-
-        self.decoder_2 = ResNetMiddleBlock(128 // self.channels_div + 384 // self.channels_div,
-                                           384 // self.channels_div,
-                                           time_emb_dim,
-                                           self.batch_size)
-
-        self.cross_attn_2 = CrossAttentionMultiHead(txt_emb_dim,
-                                                    384 // self.channels_div, self.batch_size)
-
-        self.up_3 = nn.Sequential(
-            nn.ConvTranspose2d(384 // self.channels_div, 192 // self.channels_div, kernel_size=3, stride=2, padding=1,
-                               output_padding=1),
-            # Более мягкая версия увеличения в 2 раза, помогающая убрать шахматные артефакты
-            nn.Conv2d(192 // self.channels_div, 192 // self.channels_div, kernel_size=3, padding=1, stride=1),
-            # Сглаживающая свёртка
-            nn.SiLU()  # Максимальная мягкость
-        )
-
-        self.single_conv_dec_1 = nn.Conv2d(64 // self.channels_div + 192 // self.channels_div, 96 // self.channels_div,
+        in_C_final = self.config['UP'][-1]['out_C']
+        self.up_final = SoftUpsample(in_C_final, 192 // self.channels_div)
+        self.single_conv_final = nn.Conv2d(skip_conn_C + 192 // self.channels_div, 96 // self.channels_div,
                                            kernel_size=3, padding=1,
                                            stride=1)
         self.final = nn.Sequential(
             nn.Conv2d(96 // self.channels_div, self.orig_img_channels, kernel_size=3, padding=1, stride=1),
         )  # В ddpm без финальной активации
 
-        # self.text_proj = nn.Linear(txt_emb_dim, txt_emb_dim)  # Проекция для лосса
+        # self.depth = depth  # Количество down/up-этапов
+        # Слои для downsampling (энкодер)
+        # self.down_blocks = nn.ModuleList()
+        # self.pool = nn.MaxPool2d(2, 2)  # Пулинг для уменьшения размера
+
+        # ch = in_channels
+        # for i in range(depth):
+        #     out_ch = base_channels * (2 ** i)  # Увеличиваем число каналов на каждом уровне
+        #     self.down_blocks.append(self._block(ch, out_ch, use_residual))
+        #     ch = out_ch  # Обновляем число входных каналов
+
+        # Bottleneck (самая узкая часть сети)
+        # self.bottleneck = self._block(ch, ch * 2, use_residual)
+
+        # Слои для upsampling (декодер)
+        # self.up_blocks = nn.ModuleList()
+        # for i in range(depth):
+        #     out_ch = ch // 2  # Уменьшаем количество каналов обратно
+        #     self.up_blocks.append(nn.ConvTranspose2d(ch, out_ch, kernel_size=2, stride=2))  # Upsampling
+        #     self.up_blocks.append(self._block(ch, out_ch, use_residual))
+        #     ch = out_ch
+
+        # Финальный выходной слой
+        # self.final_conv = nn.Conv2d(ch, out_channels, kernel_size=1)
+
+        # self.batch_size = batch_size
+        # self.orig_img_channels = orig_img_channels
+        # self.channels_div = channels_div  # во сколько раз делим кол-во каналов от оригинального кол-ва
+        #
+        # # --- Downsampling (Сжатие) ---
+        # self.prepare = nn.Conv2d(self.orig_img_channels, 64 // self.channels_div, kernel_size=1, padding=0,
+        #                          stride=1)  # Не меняем изображение, просто подготавливаем его для дальнейшей обработки, увеличивая кол-во каналов (линейное преобразование)
+        # self.encoder_1 = ResNetBlock(64 // self.channels_div,
+        #                              64 // self.channels_div,
+        #                              time_emb_dim,
+        #                              self.batch_size)
+        # self.down_conv_1 = nn.Conv2d(64 // self.channels_div, 64 // self.channels_div, kernel_size=3, padding=1,
+        #                              stride=2)  # уменьшаем изображение в 2 раза (для диффузионок)
+        #
+        # self.encoder_2 = ResNetMiddleBlock(64 // self.channels_div,
+        #                                    128 // self.channels_div,
+        #                                    time_emb_dim,
+        #                                    self.batch_size)
+        # self.down_conv_2 = nn.Conv2d(128 // self.channels_div, 128 // self.channels_div, kernel_size=3, padding=1,
+        #                              stride=2)  # уменьшаем изображение в 2 раза (для диффузионок)
+        #
+        # self.encoder_3 = ResNetBlock(128 // self.channels_div,
+        #                              256 // self.channels_div,
+        #                              time_emb_dim,
+        #                              self.batch_size)
+        # self.down_conv_3 = nn.Conv2d(256 // self.channels_div, 256 // self.channels_div, kernel_size=3, padding=1,
+        #                              stride=2)  # уменьшаем изображение в 2 раза (для диффузионок)
+        #
+        # self.deep_bottleneck = DeepBottleneck(256 // self.channels_div,
+        #                                       512 // self.channels_div,
+        #                                       txt_emb_dim,
+        #                                       time_emb_dim,
+        #                                       self.batch_size)
+        #
+        # self.up_1 = nn.Sequential(
+        #     nn.ConvTranspose2d(512 // self.channels_div, 512 // self.channels_div, kernel_size=3, stride=2, padding=1,
+        #                        output_padding=1),
+        #     # Более мягкая версия увеличения в 2 раза, помогающая убрать шахматные артефакты
+        #     nn.Conv2d(512 // self.channels_div, 512 // self.channels_div, kernel_size=3, padding=1, stride=1),
+        #     # Сглаживающая свёртка
+        #     nn.SiLU()  # Максимальная мягкость
+        # )
+        #
+        # self.decoder_1 = ResNetBlock(256 // self.channels_div + 512 // self.channels_div,
+        #                              512 // self.channels_div,
+        #                              time_emb_dim,
+        #                              self.batch_size)
+        #
+        # self.cross_attn_1 = CrossAttentionMultiHead(txt_emb_dim,
+        #                                             512 // self.channels_div, self.batch_size)
+        #
+        # self.up_2 = nn.Sequential(
+        #     nn.ConvTranspose2d(512 // self.channels_div, 384 // self.channels_div, kernel_size=3, stride=2, padding=1,
+        #                        output_padding=1),
+        #     # Более мягкая версия увеличения в 2 раза, помогающая убрать шахматные артефакты
+        #     nn.Conv2d(384 // self.channels_div, 384 // self.channels_div, kernel_size=3, padding=1, stride=1),
+        #     # Сглаживающая свёртка
+        #     nn.SiLU()  # Максимальная мягкость
+        # )
+        #
+        # self.decoder_2 = ResNetMiddleBlock(128 // self.channels_div + 384 // self.channels_div,
+        #                                    384 // self.channels_div,
+        #                                    time_emb_dim,
+        #                                    self.batch_size)
+        #
+        # self.cross_attn_2 = CrossAttentionMultiHead(txt_emb_dim,
+        #                                             384 // self.channels_div, self.batch_size)
+        #
+        # self.up_3 = nn.Sequential(
+        #     nn.ConvTranspose2d(384 // self.channels_div, 192 // self.channels_div, kernel_size=3, stride=2, padding=1,
+        #                        output_padding=1),
+        #     # Более мягкая версия увеличения в 2 раза, помогающая убрать шахматные артефакты
+        #     nn.Conv2d(192 // self.channels_div, 192 // self.channels_div, kernel_size=3, padding=1, stride=1),
+        #     # Сглаживающая свёртка
+        #     nn.SiLU()  # Максимальная мягкость
+        # )
+        #
+        # self.single_conv_dec_1 = nn.Conv2d(64 // self.channels_div + 192 // self.channels_div, 96 // self.channels_div,
+        #                                    kernel_size=3, padding=1,
+        #                                    stride=1)
+        # self.final = nn.Sequential(
+        #     nn.Conv2d(96 // self.channels_div, self.orig_img_channels, kernel_size=3, padding=1, stride=1),
+        # )  # В ddpm без финальной активации
+
+        # self.batch_size = batch_size
+        # self.orig_img_channels = orig_img_channels
+        # self.channels_div = channels_div  # во сколько раз делим кол-во каналов от оригинального кол-ва
+        #
+        # # --- Downsampling (Сжатие) ---
+        # self.prepare = nn.Conv2d(self.orig_img_channels, 64 // self.channels_div, kernel_size=1, padding=0,
+        #                          stride=1)  # Не меняем изображение, просто подготавливаем его для дальнейшей обработки, увеличивая кол-во каналов (линейное преобразование)
+        # self.encoder_1 = ResNetBlock(64 // self.channels_div,
+        #                              64 // self.channels_div,
+        #                              time_emb_dim,
+        #                              self.batch_size)
+        # self.down_conv_1 = nn.Conv2d(64 // self.channels_div, 64 // self.channels_div, kernel_size=3, padding=1,
+        #                              stride=2)  # уменьшаем изображение в 2 раза (для диффузионок)
+        #
+        # self.encoder_2 = ResNetMiddleBlock(64 // self.channels_div,
+        #                                    128 // self.channels_div,
+        #                                    time_emb_dim,
+        #                                    self.batch_size)
+        # self.down_conv_2 = nn.Conv2d(128 // self.channels_div, 128 // self.channels_div, kernel_size=3, padding=1,
+        #                              stride=2)  # уменьшаем изображение в 2 раза (для диффузионок)
+        #
+        # self.encoder_3 = ResNetBlock(128 // self.channels_div,
+        #                              256 // self.channels_div,
+        #                              time_emb_dim,
+        #                              self.batch_size)
+        # self.down_conv_3 = nn.Conv2d(256 // self.channels_div, 256 // self.channels_div, kernel_size=3, padding=1,
+        #                              stride=2)  # уменьшаем изображение в 2 раза (для диффузионок)
+        #
+        # self.deep_bottleneck = DeepBottleneck(256 // self.channels_div,
+        #                                       512 // self.channels_div,
+        #                                       txt_emb_dim,
+        #                                       time_emb_dim,
+        #                                       self.batch_size)
+        #
+        # self.up_1 = nn.Sequential(
+        #     nn.ConvTranspose2d(512 // self.channels_div, 512 // self.channels_div, kernel_size=3, stride=2, padding=1,
+        #                        output_padding=1),
+        #     # Более мягкая версия увеличения в 2 раза, помогающая убрать шахматные артефакты
+        #     nn.Conv2d(512 // self.channels_div, 512 // self.channels_div, kernel_size=3, padding=1, stride=1),
+        #     # Сглаживающая свёртка
+        #     nn.SiLU()  # Максимальная мягкость
+        # )
+        #
+        # self.decoder_1 = ResNetBlock(256 // self.channels_div + 512 // self.channels_div,
+        #                              512 // self.channels_div,
+        #                              time_emb_dim,
+        #                              self.batch_size)
+        #
+        # self.cross_attn_1 = CrossAttentionMultiHead(txt_emb_dim,
+        #                                             512 // self.channels_div, self.batch_size)
+        #
+        # self.up_2 = nn.Sequential(
+        #     nn.ConvTranspose2d(512 // self.channels_div, 384 // self.channels_div, kernel_size=3, stride=2, padding=1,
+        #                        output_padding=1),
+        #     # Более мягкая версия увеличения в 2 раза, помогающая убрать шахматные артефакты
+        #     nn.Conv2d(384 // self.channels_div, 384 // self.channels_div, kernel_size=3, padding=1, stride=1),
+        #     # Сглаживающая свёртка
+        #     nn.SiLU()  # Максимальная мягкость
+        # )
+        #
+        # self.decoder_2 = ResNetMiddleBlock(128 // self.channels_div + 384 // self.channels_div,
+        #                                    384 // self.channels_div,
+        #                                    time_emb_dim,
+        #                                    self.batch_size)
+        #
+        # self.cross_attn_2 = CrossAttentionMultiHead(txt_emb_dim,
+        #                                             384 // self.channels_div, self.batch_size)
+        #
+        # self.up_3 = nn.Sequential(
+        #     nn.ConvTranspose2d(384 // self.channels_div, 192 // self.channels_div, kernel_size=3, stride=2, padding=1,
+        #                        output_padding=1),
+        #     # Более мягкая версия увеличения в 2 раза, помогающая убрать шахматные артефакты
+        #     nn.Conv2d(192 // self.channels_div, 192 // self.channels_div, kernel_size=3, padding=1, stride=1),
+        #     # Сглаживающая свёртка
+        #     nn.SiLU()  # Максимальная мягкость
+        # )
+        #
+        # self.single_conv_dec_1 = nn.Conv2d(64 // self.channels_div + 192 // self.channels_div, 96 // self.channels_div,
+        #                                    kernel_size=3, padding=1,
+        #                                    stride=1)
+        # self.final = nn.Sequential(
+        #     nn.Conv2d(96 // self.channels_div, self.orig_img_channels, kernel_size=3, padding=1, stride=1),
+        # )  # В ddpm без финальной активации
+
+    def create_down_block(self, in_channels, out_channels, time_emb_dim, batch_size, use_self_attn):
+        # layers = \
+        #     [
+        #         None,
+        #         # nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, stride=2)  # уменьшение размера в 2 раза
+        #     ]
+        if not use_self_attn:
+            return ResNetBlock(in_channels, out_channels, time_emb_dim, batch_size)
+        else:
+            return ResNetMiddleBlock(in_channels, out_channels, time_emb_dim, batch_size)
+        # return nn.Sequential(*layers)
+
+    def create_bottleneck_block(self, in_channels, out_channels, text_emb_dim, time_emb_dim, batch_size):
+        # layers = []
+        return DeepBottleneck(in_channels, out_channels, text_emb_dim, time_emb_dim, batch_size)
+        # layers.append(DeepBottleneck(in_channels, out_channels, text_emb_dim, time_emb_dim, batch_size))
+        # return nn.Sequential(*layers)
+
+    def create_up_block(self, in_channels, out_channels, skip_conn_C, time_emb_dim, batch_size,
+                        use_self_attn):
+        # layers = []
+        if use_self_attn:
+            return ResNetMiddleBlock(skip_conn_C + in_channels, out_channels, time_emb_dim, batch_size)
+            # layers.append(ResNetMiddleBlock(skip_conn_C + out_channels, out_channels, time_emb_dim, batch_size))
+        else:
+            return ResNetBlock(skip_conn_C + in_channels, out_channels, time_emb_dim, batch_size)
+            # layers.append(ResNetBlock(skip_conn_C + out_channels, out_channels, time_emb_dim, batch_size))
+        # if use_cross_attn:
+        #     layers.append(CrossAttentionMultiHead(text_emb_dim, out_channels, batch_size))
+        # return nn.Sequential(*layers)
 
     def forward(self, x, text_emb, time_emb, attension_mask):
+        # x = self.prepare(x)
+        # x = self.encoder_1(x, time_emb)
+        # x_skip_conn_1 = x
+        # x = self.down_conv_1(x)
+        #
+        # x = self.encoder_2(x, time_emb)
+        # x_skip_conn_2 = x
+        # x = self.down_conv_2(x)
+        #
+        # x = self.encoder_3(x, time_emb)
+        # x_skip_conn_3 = x
+        # x = self.down_conv_3(x)
+        #
+        # x = self.deep_bottleneck(x, text_emb, time_emb, attension_mask)
+        #
+        # x = self.up_1(x)
+        # x = torch.cat([x, x_skip_conn_3], dim=1)
+        # x = self.decoder_1(x, time_emb)
+        # if text_emb != None:
+        #     x = self.cross_attn_1(x, text_emb, attension_mask)
+        #
+        # x = self.up_2(x)
+        # x = torch.cat([x, x_skip_conn_2], dim=1)
+        # x = self.decoder_2(x, time_emb)
+        # if text_emb != None:
+        #     x = self.cross_attn_2(x, text_emb, attension_mask)
+        #
+        # x = self.up_3(x)
+        # x = torch.cat([x, x_skip_conn_1], dim=1)
+        # x = self.single_conv_dec_1(x)
+        # x = self.final(x)
+
         x = self.prepare(x)
-        x = self.encoder_1(x, time_emb)
-        x_skip_conn_1 = x
-        x = self.down_conv_1(x)
 
-        x = self.encoder_2(x, time_emb)
-        x_skip_conn_2 = x
-        x = self.down_conv_2(x)
+        skip_connections = []
+        # Энкодер (downsampling)
+        # for i in filter(lambda x: x % 2 == 0, range(len(self.down_blocks))):
+        for i in range(0, 2, len(self.down_blocks)):
+            down = self.down_blocks[i]
+            x = down(x, time_emb)
+            skip_connections.append(x)
+            downsample = self.down_blocks[i + 1]
+            x = downsample(x)
 
-        x = self.encoder_3(x, time_emb)
-        x_skip_conn_3 = x
-        x = self.down_conv_3(x)
+        # Bottleneck
+        for bn in self.bottleneck:
+            x = bn(x, text_emb, time_emb, attension_mask)
 
-        x = self.deep_bottleneck(x, text_emb, time_emb, attension_mask)
+        # Декодер (upsampling)
+        i = 0
+        for decoder in self.up_blocks:
+            if isinstance(decoder, SoftUpsample):
+                x = decoder(x)
+                skip = skip_connections[-(i + 1)]
+                x = torch.cat([x, skip], dim=1)  # Skip connection
+            elif isinstance(decoder, ResNetBlock) or isinstance(decoder, ResNetMiddleBlock):
+                x = decoder(x, time_emb)
+            elif isinstance(decoder, CrossAttentionMultiHead):
+                x = decoder(x, text_emb, attension_mask)
+            i += 1
 
-        x = self.up_1(x)
-        x = torch.cat([x, x_skip_conn_3], dim=1)
-        x = self.decoder_1(x, time_emb)
-        if text_emb != None:
-            x = self.cross_attn_1(x, text_emb, attension_mask)
-
-        x = self.up_2(x)
-        x = torch.cat([x, x_skip_conn_2], dim=1)
-        x = self.decoder_2(x, time_emb)
-        if text_emb != None:
-            x = self.cross_attn_2(x, text_emb, attension_mask)
-
-        x = self.up_3(x)
-        x = torch.cat([x, x_skip_conn_1], dim=1)
-        x = self.single_conv_dec_1(x)
+        x = self.up_final(x)
+        skip = skip_connections[0]
+        x = torch.cat([x, skip], dim=1)
+        x = self.single_conv_final(x)
         x = self.final(x)
-
-        # txt_proj = self.text_proj(text_emb)
-        # return x, txt_proj
         return x
+
+
+
+
+
+
+
+        #     up = self.up_blocks[i + 1]
+        #     x = up()
+        #
+        #     skip_connections.append(x)
+        #     downsample = self.down_blocks[i + 1]
+        #     x = downsample(x)
+        #
+        # for i in range(self.depth):
+        #     x = self.up_blocks[i * 2](x)  # Transpose Conv
+        #     skip = skip_connections[-(i + 1)]
+        #     x = torch.cat([x, skip], dim=1)  # Skip connection
+        #     x = self.up_blocks[i * 2 + 1](x)  # Conv block
+        #
+        # x = self.encoder_1(x, time_emb)
+        # x_skip_conn_1 = x
+        # x = self.down_conv_1(x)
+        #
+        # x = self.encoder_2(x, time_emb)
+        # x_skip_conn_2 = x
+        # x = self.down_conv_2(x)
+        #
+        # x = self.encoder_3(x, time_emb)
+        # x_skip_conn_3 = x
+        # x = self.down_conv_3(x)
+        #
+        # x = self.deep_bottleneck(x, text_emb, time_emb, attension_mask)
+        #
+        # x = self.up_1(x)
+        # x = torch.cat([x, x_skip_conn_3], dim=1)
+        # x = self.decoder_1(x, time_emb)
+        # if text_emb != None:
+        #     x = self.cross_attn_1(x, text_emb, attension_mask)
+        #
+        # x = self.up_2(x)
+        # x = torch.cat([x, x_skip_conn_2], dim=1)
+        # x = self.decoder_2(x, time_emb)
+        # if text_emb != None:
+        #     x = self.cross_attn_2(x, text_emb, attension_mask)
+        #
+        # x = self.up_3(x)
+        # x = torch.cat([x, x_skip_conn_1], dim=1)
+        # x = self.single_conv_dec_1(x)
+        #
+        # x = self.final(x)
+        # return x

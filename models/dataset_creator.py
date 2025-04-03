@@ -182,11 +182,11 @@ def create_dataset_mnist(folder, train_flag):
 def load_data_from_file(filepath):
     with open(filepath, "rb") as f:
         obj = pickle.load(f)
-    print(f'Объект {obj} успешно загружен из {filepath}')
+    print(f'Объект {type(obj)} успешно загружен из {filepath}')
     return obj
 
 
 def save_data_to_file(obj, filepath):
     with open(filepath, "wb") as f:
         pickle.dump(obj, f)
-    print(f'Объект {obj} успешно сохранён в {filepath}')
+    print(f'Объект {type(obj)} успешно сохранён в {filepath}')
