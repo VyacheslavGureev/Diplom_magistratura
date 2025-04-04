@@ -77,16 +77,9 @@ class EncapsulatedModel:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(self.device)
 
-        config = {'DOWN':
-                        [{'in_C': 64, 'out_C': 128, 'SA': False},
-                         {'in_C': 128, 'out_C': 256, 'SA': True},
-                         {'in_C': 256, 'out_C': 512, 'SA': False}],
-                  'BOTTLENECK': [{'in_C': 512, 'out_C': 512}],
-                'UP':   [{'in_C': 512, 'out_C': 256, 'sc_C': , 'SA': False, 'CA': False},
-                         {'in_C': 128, 'out_C': 256, 'SA': True},
-                         {'in_C': 256, 'out_C': 512, 'SA': False}],}
 
-        self.model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM, 1, 4, hyperparams.BATCH_SIZE, config)
+
+        self.model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM, 1, 1, hyperparams.BATCH_SIZE, hyperparams.UNET_CONFIG)
         self.model.to(self.device)
 
         self.ema = EMA(self.model, self.device)

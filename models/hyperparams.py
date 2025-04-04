@@ -3,6 +3,23 @@ IMG_SIZE = 32  # Размер изображений
 BATCH_SIZE = 16
 LR = 0.0001
 
+# UNET_CONFIG = {'DOWN':
+#               [{'in_C': 64, 'out_C': 128, 'SA': False},
+#                {'in_C': 128, 'out_C': 256, 'SA': True},
+#                {'in_C': 256, 'out_C': 512, 'SA': False}],
+#           'BOTTLENECK': [{'in_C': 512, 'out_C': 512}],
+#           'UP': [{'in_C': 512, 'out_C': 256, 'sc_C': 256, 'SA': False, 'CA': False},
+#                  {'in_C': 256 + 256, 'out_C': 256, 'sc_C': 128, 'SA': True, 'CA': True}]}
+
+UNET_CONFIG = {'DOWN':
+              [{'in_C': 4, 'out_C': 8, 'SA': False},
+               {'in_C': 8, 'out_C': 16, 'SA': True},
+               {'in_C': 16, 'out_C': 32, 'SA': False}],
+          'BOTTLENECK': [{'in_C': 32, 'out_C': 32}],
+          'UP': [{'in_C': 32, 'out_C': 16, 'sc_C': 16, 'SA': False, 'CA': False},
+                 {'in_C': 16 + 16, 'out_C': 16, 'sc_C': 8, 'SA': True, 'CA': True}]}
+
+
 T = 1000  # Количество шагов в диффузии
 
 # --- Почти никогда не меняется ---
