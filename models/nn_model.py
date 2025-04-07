@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from torchviz import make_dot
 
 
 class CrossAttentionMultiHead(nn.Module):
@@ -111,6 +112,9 @@ class SelfAttentionBlock(nn.Module):
     def __init__(self, num_channels: int, num_groups: int = 8, num_heads: int = 4):
         super(SelfAttentionBlock, self).__init__()
         # GroupNorm
+        if num_channels % num_groups != 0:
+            num_groups = self.compute_groups(num_channels, num_groups)
+
         self.norm = nn.GroupNorm(num_groups, num_channels)
         # Self-Attention
         self.attn = nn.MultiheadAttention(
@@ -119,6 +123,12 @@ class SelfAttentionBlock(nn.Module):
             batch_first=True,
             dropout=0.1
         )
+
+    def compute_groups(self, channels, max_groups=8):
+        for groups in range(max_groups, 0, -1):
+            if channels % groups == 0:
+                return groups
+        return 1  # Если ничего не найдено
 
     def forward(self, x):
         B, C, H, W = x.shape
@@ -295,7 +305,8 @@ class MyUNet(nn.Module):
         self.up_final = SoftUpsample(in_C_final, out_C_final // self.channels_div)
         in_C_final = out_C_final
         out_C_final = in_C_final // 2
-        self.single_conv_final = nn.Conv2d(first_out_C + in_C_final // self.channels_div, out_C_final // self.channels_div,
+        self.single_conv_final = nn.Conv2d(first_out_C + in_C_final // self.channels_div,
+                                           out_C_final // self.channels_div,
                                            kernel_size=3, padding=1,
                                            stride=1)
         in_C_final = out_C_final

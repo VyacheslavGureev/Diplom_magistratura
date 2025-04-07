@@ -14,6 +14,7 @@ import models.nn_model as neural
 import models.dataset_creator as dc
 import models.hyperparams as hyperparams
 import models.manager as manager
+import models.diffusion_model as dm
 import models.encapsulated_data as encapsulated_data
 
 
@@ -47,19 +48,19 @@ def neural_func():
     # train_dataset, val_dataset = random_split(dataset_full, [train_size, val_size])
     # # test_dataset = random_split(tst_dataset, [tst_size])
     # train_loader = DataLoader(train_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=True,
-    #                           collate_fn=model_manager.collate_fn)
+    #                           collate_fn=dc.collate_fn)
     # val_loader = DataLoader(val_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=False,
-    #                         collate_fn=model_manager.collate_fn)
+    #                         collate_fn=dc.collate_fn)
     # test_loader = DataLoader(tst_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=False,
-    #                          collate_fn=model_manager.collate_fn)
+    #                          collate_fn=dc.collate_fn)
     # e_loader = encapsulated_data.EncapsulatedDataloaders(train_loader, val_loader, test_loader)
     # dc.save_data_to_file(e_loader, 'trained/e_loader.pkl')
     # print('test')
 
     # mode = 'img'  #
-    # mode = 'create_train_test_save'  #
+    mode = 'create_train_test_save'  #
     # mode = 'load_train_test_save'  #
-    mode = 'load_gen'  #
+    # mode = 'load_gen'  #
     # mode = 'debug'  #
 
     # mode = 'create_train_save'  #
@@ -67,7 +68,8 @@ def neural_func():
     # mode = 'load_gen'  #
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model_manager = manager.ModelManager(device)
+    model_manager = manager.ModelManager()
+    sheduler = dm.NoiseSheduler(hyperparams.T, 'linear', device)
     if mode == 'load_gen':
         em = model_manager.load_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR, hyperparams.CURRENT_MODEL_NAME,
                                                          device)
@@ -82,7 +84,7 @@ def neural_func():
         # text = "На изображении семерка"
         # text = "Нарисована цифра восемь"
         # text = "Рукописная девятка"
-        i = model_manager.get_img_from_text(em, text, device)
+        i = model_manager.get_img_from_text(em, text, sheduler)
         # model_manager.show_image(i[1])
     else:
         # dataset = dc.create_dataset("datas/Flickr8k/Images/", "datas/Flickr8k/captions/captions.txt")

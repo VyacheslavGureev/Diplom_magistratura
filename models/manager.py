@@ -19,6 +19,7 @@ import models.hyperparams as hyperparams
 import models.dataset_creator as dc
 import models.encapsulated_data as encapsulated_data
 import models.nn_model as nn_model
+import models.diffusion_model as dm
 
 
 class EarlyStopping:
@@ -92,63 +93,8 @@ class EarlyStopping:
 
 class ModelManager():
 
-    def __init__(self, device):
-        self.device = device
-
-        # Максимально стандартное линейное расписание
-        beta_start = 1e-4
-        beta_end = 0.02
-        self.create_diff_sheduler_linear(hyperparams.T, beta_start, beta_end)
-
-        # s = 0.008
-        # self.create_diff_scheduler_cosine(hyperparams.T, s)
-
-    def create_diff_sheduler_linear(self, num_time_steps, beta_start, beta_end):
-        # Precomputing beta, alpha, and alpha_bar for all t's.
-        self.b = torch.linspace(beta_start, beta_end, num_time_steps)  # b -> beta
-        self.a = 1 - self.b  # a -> alpha
-        self.a_bar = torch.cumprod(self.a, dim=0)  # a_bar = alpha_bar
-        self.b = self.b.to(self.device)
-        self.a = self.a.to(self.device)
-        self.a_bar = self.a_bar.to(self.device)
-
-        # print(f"Min beta: {self.b.min().item()}")
-        # print(f"Max beta: {self.b.max().item()}")
-        # import matplotlib.pyplot as plt
-        # plt.plot(self.b.cpu().numpy(), label="Beta")
-        # plt.xlabel("Timestep")
-        # plt.ylabel("Beta")
-        # plt.title("Cosine Schedule for Beta")
-        # plt.legend()
-        # plt.show()
-        # plt.pause(3600)
-
-    def create_diff_scheduler_cosine(self, T, s):
-        """Генерирует b_t на основе косинусного расписания"""
-        """Генерирует b_t на основе косинусного расписания"""
-        t = torch.linspace(0, T, steps=T + 1)  # Временные шаги 0...T
-        f_t = torch.cos((t / T + s) / (1 + s) * (np.pi / 2)) ** 2  # Косинусная формула
-        alpha_bar = f_t / f_t[0]  # Нормируем, чтобы α̅_T = 1
-        beta = 1 - alpha_bar[1:] / alpha_bar[:-1]  # Вычисляем b_t
-        self.b = torch.clip(beta, 0.0001, 0.999)  # Ограничиваем b_t
-        self.a = 1 - self.b
-        self.a_bar = torch.cumprod(self.a, dim=0)
-        self.b = self.b.to(self.device)
-        self.a = self.a.to(self.device)
-        self.a_bar = self.a_bar.to(self.device)
-
-        # print(f"Min beta: {self.b.min().item()}")
-        # print(f"Max beta: {self.b.max().item()}")
-        # import matplotlib.pyplot as plt
-        # T = 1000
-        # s = 0.008
-        # plt.plot(self.b.cpu().numpy(), label="Beta")
-        # plt.xlabel("Timestep")
-        # plt.ylabel("Beta")
-        # plt.title("Cosine Schedule for Beta")
-        # plt.legend()
-        # plt.show()
-        # plt.pause(3600)
+    def __init__(self):
+        pass
 
     # --- Создание модели ---
     def create_model(self):
@@ -162,63 +108,13 @@ class ModelManager():
         train_dataset, val_dataset, test_dataset = random_split(dataset,
                                                                 [train_size, val_size, test_size])
         train_loader = DataLoader(train_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=True,
-                                  collate_fn=self.collate_fn)
+                                  collate_fn=dc.collate_fn)
         val_loader = DataLoader(val_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=False,
-                                collate_fn=self.collate_fn)
+                                collate_fn=dc.collate_fn)
         test_loader = DataLoader(test_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=False,
-                                 collate_fn=self.collate_fn)  # Тестовый датасет можно не перемешивать
+                                 collate_fn=dc.collate_fn)  # Тестовый датасет можно не перемешивать
         e_loader = encapsulated_data.EncapsulatedDataloaders(train_loader, val_loader, test_loader)
         return e_loader
-
-    def collate_fn(self, batch):
-        if len(batch) % hyperparams.BATCH_SIZE != 0:
-            additional_batch = random.choices(batch, k=hyperparams.BATCH_SIZE - (len(batch) % hyperparams.BATCH_SIZE))
-            batch = batch + additional_batch
-        images, text_embs, masks = zip(*batch)  # Разбираем батч по частям
-        images = torch.stack(images)  # Объединяем картинки (B, C, H, W)
-        text_embs = torch.stack(text_embs)  # Объединяем текстовые эмбеддинги (B, max_length, txt_emb_dim)
-        masks = torch.stack(masks)  # Объединяем маски внимания (B, max_length)
-        return images, text_embs, masks
-
-    # --- Определение форвардного процесса (зашумление) ---
-    def forward_diffusion(self, x0, t, noise=None):
-        """ Добавляет стандартный гауссовский шум к изображению """
-        if noise is None:
-            noise = torch.randn_like(x0, requires_grad=False)
-        at = self.a_bar[t][:, None, None, None]
-        xt = torch.sqrt(at) * x0 + torch.sqrt(1 - at) * noise
-        # return xt
-        return xt, noise
-
-    def get_time_embedding(self,
-                           time_steps: torch.Tensor,
-                           t_emb_dim: int
-                           ) -> torch.Tensor:
-
-        """
-        Transform a scalar time-step into a vector representation of size t_emb_dim.
-
-        :param time_steps: 1D tensor of size -> (Batch,)
-        :param t_emb_dim: Embedding Dimension -> for ex: 128 (scalar value)
-
-        :return tensor of size -> (B, t_emb_dim)
-        """
-
-        assert t_emb_dim % 2 == 0, "time embedding must be divisible by 2."
-
-        factor = 2 * torch.arange(start=0,
-                                  end=t_emb_dim // 2,
-                                  dtype=torch.float32,
-                                  device=time_steps.device
-                                  ) / (t_emb_dim)
-
-        factor = 10000 ** factor
-
-        t_emb = time_steps[:, None]  # B -> (B, 1)
-        t_emb = t_emb / factor  # (B, 1) -> (B, t_emb_dim//2)
-        t_emb = torch.cat([torch.sin(t_emb), torch.cos(t_emb)], dim=1)  # (B , t_emb_dim)
-
-        return t_emb
 
     def train_model(self, e_model: encapsulated_data.EncapsulatedModel,
                     e_loader: encapsulated_data.EncapsulatedDataloaders, epochs):
@@ -312,6 +208,26 @@ class ModelManager():
         end_time_ep = time.time()
         print(f'Трен. заверш. {end_time_ep - start_time_ep}')
         return running_loss
+
+    import torch
+    from torchviz import make_dot
+
+    # Предположим, у тебя есть модель
+    model = YourUNetModel()
+    model.eval()
+
+    # Создаём dummy-входы (примеры — адаптируй под себя!)
+    dummy_input = torch.randn(1, 1, 64, 64, requires_grad=True)  # (B, C, H, W)
+
+    # Прогон через модель
+    output = model(dummy_input)
+
+    # Создаём граф
+    dot = make_dot(output, params=dict(model.named_parameters()))
+
+    # Сохраняем как PDF или PNG
+    dot.format = 'pdf'  # можно 'png'
+    dot.render('unet_graph')
 
     def validating_model(self, e_model: encapsulated_data.EncapsulatedModel,
                          e_loader: encapsulated_data.EncapsulatedDataloaders):
@@ -433,7 +349,8 @@ class ModelManager():
         checkpoint = torch.load(model_filepath)
         e_model = encapsulated_data.EncapsulatedModel()
 
-        model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM, 1, 1, hyperparams.BATCH_SIZE, hyperparams.UNET_CONFIG).to(
+        model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM, 1, 1, hyperparams.BATCH_SIZE,
+                                hyperparams.UNET_CONFIG).to(
             device)
         model.load_state_dict(checkpoint['model_state_dict'])
         cross_attn_params = []
@@ -461,89 +378,18 @@ class ModelManager():
         ema.ema_model.load_state_dict(checkpoint['ema'])  # Загружаем EMA-веса
         return e_model
 
-    # Функция для reverse diffusion
-    def reverse_diffusion(self, model, ema, text_embedding, attn_mask, device):
-        # Инициализация случайного шума (начало процесса)
-        orig_channels = 1
-        x_t = torch.randn(hyperparams.BATCH_SIZE, orig_channels, hyperparams.IMG_SIZE, hyperparams.IMG_SIZE).to(
-            device)  # (B, C, H, W)
-        # self.show_image(x_t[5])
-        t_tensor = torch.arange(0, hyperparams.T, 1, dtype=torch.int)
-        t_tensor = t_tensor.unsqueeze(1)
-        t_tensor = t_tensor.expand(hyperparams.T, hyperparams.BATCH_SIZE)
-        t_tensor = t_tensor.to(device)
-
-        output_dir = "trained/denoising/"
-        # Удаляем все файлы в папке
-        for file in os.listdir(output_dir):
-            file_path = os.path.join(output_dir, file)
-            if os.path.isfile(file_path):
-                os.remove(file_path)
-
-        # Запускаем процесс reverse diffusion
-        ema.ema_model.eval()
-        model.eval()
-        with torch.no_grad():
-            i = 0
-            for step in tqdm(range(hyperparams.T - 1, -1, -1), colour='white'):
-                t_i = self.get_time_embedding(t_tensor[step], hyperparams.TIME_EMB_DIM)
-                t_i = t_i.to(device)
-                predicted_noise = model(x_t, text_embedding, t_i, attn_mask)
-
-                # predicted_noise = ema.ema_model(x_t, text_embedding, t_i, attn_mask)
-                # if step == 1:
-                # self.show_image(predicted_noise[5])
-
-                # guidance_scale = 0.5  # Усиление текстового сигнала
-                # predicted_noise_uncond = model(x_t, None, t_i, None) # Безусловное предсказание
-                # predicted_noise_cond = model(x_t, text_embedding, t_i, attn_mask)  # Условное предсказание
-                # predicted_noise = guidance_scale * predicted_noise_cond + (1 - guidance_scale) * predicted_noise_uncond
-
-                x_t = (1 / torch.sqrt(self.a[step])) * (
-                        x_t - ((1 - self.a[step]) / (torch.sqrt(1 - self.a_bar[step]))) * predicted_noise)
-                # Можно добавить дополнительные шаги, такие как коррекция или уменьшение шума
-                # Например, можно добавить немного шума обратно с каждым шагом:
-                # if step > 0:  # Добавляем случайный шум на всех шагах, кроме последнего
-                #     noise = torch.randn_like(x_t).to(device) * (1 - self.a[step]).sqrt()
-                #     x_t += noise
-
-                if i % 20 == 0:
-                    vutils.save_image(x_t, f"trained/denoising/step_{step}.png", normalize=True)
-                    # vutils.save_image(x_t, f"E:/YandexDisk/Another/Diplom_maga/Diplom_magistratura/trained/denoising/step_{step}.png", normalize=True)
-
-                i += 1
-
-        images = []
-        for step in sorted(os.listdir("trained/denoising"), key=lambda x: int(x.split("_")[1].split(".")[0]),
-                           reverse=True):
-            images.append(imageio.imread(os.path.join("trained/denoising", step)))
-
-        imageio.mimsave("trained/denoising/denoising_process.gif", images, duration=0.3)  # 0.3 секунды на кадр
-
-        # Вернем восстановленное изображение
-        return x_t
-
-    def get_img_from_text(self, e_model: encapsulated_data.EncapsulatedModel, text, device):
+    def get_img_from_text(self, e_model: encapsulated_data.EncapsulatedModel, text, sheduler):
         text_embs, masks = dc.get_text_emb(text)
         model = e_model.model
-        ema = e_model.ema
+        # ema = e_model.ema
 
         # Повторяем тензоры, чтобы размерность по батчам совпадала
         text_emb_batch = text_embs.unsqueeze(0).expand(hyperparams.BATCH_SIZE, -1, -1)  # (B, tokens, text_emb_dim)
         mask_batch = masks.unsqueeze(0).expand(hyperparams.BATCH_SIZE, -1)  # (B, tokens)
 
-        mask_batch = mask_batch.to(device)
-        text_emb_batch = text_emb_batch.to(device)
-        img = self.reverse_diffusion(model, ema, text_emb_batch, mask_batch, device)
+        mask_batch = mask_batch.to(model.device)
+        text_emb_batch = text_emb_batch.to(model.device)
+        img = dm.reverse_diffusion(model, text_emb_batch, mask_batch, sheduler)
         return img
 
-    def show_image(self, tensor_img):
-        """ Визуализация тензора изображения """
-        # img = tensor_img.cpu().detach().numpy()
-        img = tensor_img.cpu().detach().numpy().transpose(1, 2, 0)  # Приводим к (H, W, C)
-        img = (img - img.min()) / (
-                img.max() - img.min())  # Нормализация к [0,1] (matplotlib ждёт данные в формате [0, 1], другие не примет)
-        plt.imshow(img)
-        plt.axis("off")  # Убираем оси
-        plt.show()
-        plt.pause(3600)
+

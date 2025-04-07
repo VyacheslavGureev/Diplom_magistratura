@@ -1,7 +1,5 @@
 import random
-
 import torch
-import pickle
 import torch.nn.functional as F  # Стандартный импорт
 from torch.utils.data import Dataset, DataLoader
 from transformers import CLIPTokenizer, CLIPTextModel
@@ -11,6 +9,18 @@ from PIL import Image
 
 from torchvision import transforms, datasets
 import models.hyperparams as hyperparams
+import models.utils as utils
+
+
+def collate_fn(batch):
+    if len(batch) % hyperparams.BATCH_SIZE != 0:
+        additional_batch = random.choices(batch, k=hyperparams.BATCH_SIZE - (len(batch) % hyperparams.BATCH_SIZE))
+        batch = batch + additional_batch
+    images, text_embs, masks = zip(*batch)  # Разбираем батч по частям
+    images = torch.stack(images)  # Объединяем картинки (B, C, H, W)
+    text_embs = torch.stack(text_embs)  # Объединяем текстовые эмбеддинги (B, max_length, txt_emb_dim)
+    masks = torch.stack(masks)  # Объединяем маски внимания (B, max_length)
+    return images, text_embs, masks
 
 
 class MNISTTextDataset(Dataset):
@@ -125,22 +135,6 @@ class ImageTextDataset(Dataset):
         return image, text_emb_reduced, attention_mask
 
 
-def get_text_emb(text):
-    tokenizer = load_data_from_file('datas/embedders/tokenizer.pkl')
-    text_encoder = load_data_from_file('datas/embedders/text_encoder.pkl')
-    tokens = tokenizer(
-        text,
-        return_tensors="pt",
-        padding="max_length",  # Делаем паддинг до max_length
-        truncation=True,  # Обрезаем слишком длинные тексты
-        max_length=hyperparams.MAX_LEN_TOKENS  # Устанавливаем максимальную длину
-    )
-    attention_mask = tokens['attention_mask'].squeeze(0)  # (max_length,)
-    with torch.no_grad():
-        text_emb_reduced = text_encoder(**tokens).last_hidden_state.squeeze(0)  # (max_length, txt_emb_dim)
-    return text_emb_reduced, attention_mask
-
-
 # --- Создание датасета для обучения ---
 def create_dataset(image_folder, captions_file):
     transform = transforms.Compose([
@@ -148,8 +142,8 @@ def create_dataset(image_folder, captions_file):
         transforms.ToTensor(),  # Переводим в тензор (C, H, W)
         transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # Нормализация
     ])
-    tokenizer = load_data_from_file('datas/embedders/tokenizer.pkl')
-    text_encoder = load_data_from_file('datas/embedders/text_encoder.pkl')
+    tokenizer = utils.load_data_from_file('datas/embedders/tokenizer.pkl')
+    text_encoder = utils.load_data_from_file('datas/embedders/text_encoder.pkl')
     dataset = ImageTextDataset(
         image_folder=image_folder,
         captions_file=captions_file,
@@ -168,8 +162,8 @@ def create_dataset_mnist(folder, train_flag):
         transforms.ToTensor(),  # Переводим в тензор (C, H, W)
         transforms.Normalize(mean=[0.5], std=[0.5])  # Нормализация (один канал)
     ])
-    tokenizer = load_data_from_file('datas/embedders/tokenizer.pkl')
-    text_encoder = load_data_from_file('datas/embedders/text_encoder.pkl')
+    tokenizer = utils.load_data_from_file('datas/embedders/tokenizer.pkl')
+    text_encoder = utils.load_data_from_file('datas/embedders/text_encoder.pkl')
     dataset = MNISTTextDataset(root=folder,
                                train=train_flag,
                                transform=transform,
@@ -179,14 +173,17 @@ def create_dataset_mnist(folder, train_flag):
     return dataset
 
 
-def load_data_from_file(filepath):
-    with open(filepath, "rb") as f:
-        obj = pickle.load(f)
-    print(f'Объект {type(obj)} успешно загружен из {filepath}')
-    return obj
-
-
-def save_data_to_file(obj, filepath):
-    with open(filepath, "wb") as f:
-        pickle.dump(obj, f)
-    print(f'Объект {type(obj)} успешно сохранён в {filepath}')
+def get_text_emb(text):
+    tokenizer = utils.load_data_from_file('datas/embedders/tokenizer.pkl')
+    text_encoder = utils.load_data_from_file('datas/embedders/text_encoder.pkl')
+    tokens = tokenizer(
+        text,
+        return_tensors="pt",
+        padding="max_length",  # Делаем паддинг до max_length
+        truncation=True,  # Обрезаем слишком длинные тексты
+        max_length=hyperparams.MAX_LEN_TOKENS  # Устанавливаем максимальную длину
+    )
+    attention_mask = tokens['attention_mask'].squeeze(0)  # (max_length,)
+    with torch.no_grad():
+        text_emb_reduced = text_encoder(**tokens).last_hidden_state.squeeze(0)  # (max_length, txt_emb_dim)
+    return text_emb_reduced, attention_mask
