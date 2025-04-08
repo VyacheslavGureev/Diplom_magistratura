@@ -20,16 +20,15 @@ LR = 0.0001
 #                  {'in_C': 16 + 16, 'out_C': 16, 'sc_C': 8, 'SA': True, 'CA': True}]}
 
 UNET_CONFIG = {'DOWN':
-              [{'in_C': 1, 'out_C': 3, 'SA': False},
-               {'in_C': 3, 'out_C': 4, 'SA': False},
-               {'in_C': 4, 'out_C': 8, 'SA': True},
-               {'in_C': 8, 'out_C': 16, 'SA': False}],
-          'BOTTLENECK': [{'in_C': 16, 'out_C': 16}],
-          'UP': [{'in_C': 16, 'out_C': 8, 'sc_C': 8, 'SA': False, 'CA': False},
-                 {'in_C': 8 + 8, 'out_C': 8, 'sc_C': 4, 'SA': True, 'CA': True},
-                {'in_C': 8 + 4, 'out_C': 6, 'sc_C': 3, 'SA': False, 'CA': False}
-                 ]}
-
+                   [{'in_C': 1, 'out_C': 3, 'SA': False},
+                    {'in_C': 3, 'out_C': 4, 'SA': False},
+                    {'in_C': 4, 'out_C': 8, 'SA': True},
+                    {'in_C': 8, 'out_C': 16, 'SA': False}],
+               'BOTTLENECK': [{'in_C': 16, 'out_C': 16}],
+               'UP': [{'in_C': 16, 'out_C': 8, 'sc_C': 8, 'SA': False, 'CA': False},
+                      {'in_C': 8 + 8, 'out_C': 8, 'sc_C': 4, 'SA': True, 'CA': True},
+                      {'in_C': 8 + 4, 'out_C': 6, 'sc_C': 3, 'SA': False, 'CA': False}
+                      ]}
 
 T = 1000  # Количество шагов в диффузии
 

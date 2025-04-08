@@ -70,11 +70,12 @@ import models.nn_model as nn_model
 #     weights = torch.exp(delta)  # Больший вес для сложных примеров
 #     return (weights * base_loss(predict, target)).mean()
 
-
+# Данные про модель в одном месте
 class EncapsulatedModel:
-    def __init__(self):
+    def __init__(self, device):
         # Создание модели с нуля
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device
+        # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(self.device)
 
         self.model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM, 1, 1, hyperparams.BATCH_SIZE,
@@ -118,9 +119,9 @@ class EMA:
                 ema_param.data.mul_(self.decay).add_(model_param.data, alpha=1 - self.decay)  # EMA обновление
 
 
+# Данные про датасет в одном месте
 class EncapsulatedDataloaders:
     def __init__(self, train, val, test):
-        # Данные про датасет в одном месте
         self.train = train
         self.val = val
         self.test = test

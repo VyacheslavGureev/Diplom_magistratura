@@ -27,17 +27,7 @@ class NoiseSheduler():
         self.b = self.b.to(self.device)
         self.a = self.a.to(self.device)
         self.a_bar = self.a_bar.to(self.device)
-
-        # print(f"Min beta: {self.b.min().item()}")
-        # print(f"Max beta: {self.b.max().item()}")
-        # import matplotlib.pyplot as plt
-        # plt.plot(self.b.cpu().numpy(), label="Beta")
-        # plt.xlabel("Timestep")
-        # plt.ylabel("Beta")
-        # plt.title("Cosine Schedule for Beta")
-        # plt.legend()
-        # plt.show()
-        # plt.pause(3600)
+        # self.show_shedule()
 
     def create_diff_scheduler_cosine(self, T, s):
         t = torch.linspace(0, T, steps=T + 1)  # Временные шаги 0...T
@@ -50,19 +40,21 @@ class NoiseSheduler():
         self.b = self.b.to(self.device)
         self.a = self.a.to(self.device)
         self.a_bar = self.a_bar.to(self.device)
+        # self.show_shedule()
 
-        # print(f"Min beta: {self.b.min().item()}")
-        # print(f"Max beta: {self.b.max().item()}")
-        # import matplotlib.pyplot as plt
-        # T = 1000
-        # s = 0.008
-        # plt.plot(self.b.cpu().numpy(), label="Beta")
-        # plt.xlabel("Timestep")
-        # plt.ylabel("Beta")
-        # plt.title("Cosine Schedule for Beta")
-        # plt.legend()
-        # plt.show()
-        # plt.pause(3600)
+    def show_shedule(self):
+        print(f"Min beta: {self.b.min().item()}")
+        print(f"Max beta: {self.b.max().item()}")
+        import matplotlib.pyplot as plt
+        T = 1000
+        s = 0.008
+        plt.plot(self.b.cpu().numpy(), label="Beta")
+        plt.xlabel("Timestep")
+        plt.ylabel("Beta")
+        plt.title("Cosine Schedule for Beta")
+        plt.legend()
+        plt.show()
+        plt.pause(3600)
 
 
 def get_time_embedding(time_steps: torch.Tensor, t_emb_dim: int) -> torch.Tensor:
@@ -107,9 +99,9 @@ def reverse_diffusion(model, text_embedding, attn_mask, sheduler: NoiseSheduler)
     # Инициализация случайного шума (начало процесса)
     orig_channels = 1
     x_t = torch.randn(hyperparams.BATCH_SIZE, orig_channels, hyperparams.IMG_SIZE, hyperparams.IMG_SIZE,
-                      device=model.device)  # (B, C, H, W)
+                      device=next(model.parameters()).device)  # (B, C, H, W)
     # self.show_image(x_t[5])
-    t_tensor = torch.arange(0, hyperparams.T, 1, dtype=torch.int, device=model.device)
+    t_tensor = torch.arange(0, hyperparams.T, 1, dtype=torch.int, device=next(model.parameters()).device)
     t_tensor = t_tensor.unsqueeze(1)
     t_tensor = t_tensor.expand(hyperparams.T, hyperparams.BATCH_SIZE)
     output_dir = "trained/denoising/"
@@ -140,7 +132,6 @@ def reverse_diffusion(model, text_embedding, attn_mask, sheduler: NoiseSheduler)
             #     x_t += noise
             if i % 20 == 0:
                 vutils.save_image(x_t, f"trained/denoising/step_{step}.png", normalize=True)
-                # vutils.save_image(x_t, f"E:/YandexDisk/Another/Diplom_maga/Diplom_magistratura/trained/denoising/step_{step}.png", normalize=True)
             i += 1
     images = []
     for step in sorted(os.listdir("trained/denoising"), key=lambda x: int(x.split("_")[1].split(".")[0]),

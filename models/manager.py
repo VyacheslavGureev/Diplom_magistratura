@@ -14,12 +14,15 @@ import matplotlib.pyplot as plt
 import random
 from tqdm import tqdm
 from torch.cuda.amp import autocast, GradScaler
+import torch
+from torchviz import make_dot
+import hiddenlayer as hl
 
 import models.hyperparams as hyperparams
 import models.dataset_creator as dc
 import models.encapsulated_data as encapsulated_data
 import models.nn_model as nn_model
-import models.diffusion_model as dm
+import models.diffusion_processes as diff_proc
 
 
 class EarlyStopping:
@@ -90,15 +93,15 @@ class EarlyStopping:
 #
 #             return mean + sigma * z, x0
 
-
+# Универсальный класс для главных взаимодействий с моделью
 class ModelManager():
 
     def __init__(self):
         pass
 
     # --- Создание модели ---
-    def create_model(self):
-        return encapsulated_data.EncapsulatedModel()
+    def create_model(self, device):
+        return encapsulated_data.EncapsulatedModel(device)
 
     def create_dataloaders(self, dataset, train_size_percent, val_size_percent):
         # Разделяем датасеты
@@ -117,13 +120,13 @@ class ModelManager():
         return e_loader
 
     def train_model(self, e_model: encapsulated_data.EncapsulatedModel,
-                    e_loader: encapsulated_data.EncapsulatedDataloaders, epochs):
+                    e_loader: encapsulated_data.EncapsulatedDataloaders, epochs, sheduler):
         plateau_scheduler = lr_scheduler.ReduceLROnPlateau(e_model.optimizer, mode='min', factor=0.5, patience=3)
         early_stopping = EarlyStopping(patience=5)
         for epoch in range(epochs):
-            running_train_loss = self.training_model(e_model, e_loader)
-            # running_val_loss = self.validating_model(e_model, e_loader)
-            running_val_loss = 0
+            running_train_loss = self.training_model(e_model, e_loader, sheduler)
+            running_val_loss = self.validating_model(e_model, e_loader, sheduler)
+            # running_val_loss = 0
 
             avg_loss_train = running_train_loss / len(e_loader.train)
             avg_loss_val = running_val_loss / len(e_loader.val)
@@ -142,7 +145,7 @@ class ModelManager():
             plateau_scheduler.step(avg_loss_val)  # Дополнительно уменьшает, если застряли
 
     def training_model(self, e_model: encapsulated_data.EncapsulatedModel,
-                       e_loader: encapsulated_data.EncapsulatedDataloaders):
+                       e_loader: encapsulated_data.EncapsulatedDataloaders, sheduler):
         print("Тренировка")
         model = e_model.model
         ema = e_model.ema
@@ -172,11 +175,9 @@ class ModelManager():
             optimizer.zero_grad()
 
             t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
-            time_emb = self.get_time_embedding(t, hyperparams.TIME_EMB_DIM)
+            time_emb = diff_proc.get_time_embedding(t, hyperparams.TIME_EMB_DIM)
 
-            xt, added_noise = self.forward_diffusion(images, t)
-            xt = xt.to(device)
-            added_noise = added_noise.to(device)
+            xt, added_noise = diff_proc.forward_diffusion(images, t, sheduler)
 
             with torch.cuda.amp.autocast():  # Включаем AMP
                 # guidance_prob = 0.15  # 15% примеров будут безусловными
@@ -203,34 +204,14 @@ class ModelManager():
             print(f"Процентов {(i / len(train_loader)) * 100}, {end_time - start_time}, loss: {loss_train.item():.4f}")
 
             if i % log_interval == 0:
-                print(f"Batch: {i}, Current Loss: {loss_train.item():.4f}")
+                print(f"Batch: {i}, Current Train Loss: {loss_train.item():.4f}")
 
         end_time_ep = time.time()
         print(f'Трен. заверш. {end_time_ep - start_time_ep}')
         return running_loss
 
-    import torch
-    from torchviz import make_dot
-
-    # Предположим, у тебя есть модель
-    model = YourUNetModel()
-    model.eval()
-
-    # Создаём dummy-входы (примеры — адаптируй под себя!)
-    dummy_input = torch.randn(1, 1, 64, 64, requires_grad=True)  # (B, C, H, W)
-
-    # Прогон через модель
-    output = model(dummy_input)
-
-    # Создаём граф
-    dot = make_dot(output, params=dict(model.named_parameters()))
-
-    # Сохраняем как PDF или PNG
-    dot.format = 'pdf'  # можно 'png'
-    dot.render('unet_graph')
-
     def validating_model(self, e_model: encapsulated_data.EncapsulatedModel,
-                         e_loader: encapsulated_data.EncapsulatedDataloaders):
+                         e_loader: encapsulated_data.EncapsulatedDataloaders, sheduler):
         print("Валидация")
         model = e_model.model
         device = e_model.device
@@ -256,11 +237,9 @@ class ModelManager():
                 images, text_embs, attention_mask = images.to(device), text_embs.to(device), attention_mask.to(device)
 
                 t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
-                time_emb = self.get_time_embedding(t, hyperparams.TIME_EMB_DIM)
+                time_emb = diff_proc.get_time_embedding(t, hyperparams.TIME_EMB_DIM)
 
-                xt, added_noise = self.forward_diffusion(images, t)
-                xt = xt.to(device)
-                added_noise = added_noise.to(device)
+                xt, added_noise = diff_proc.forward_diffusion(images, t, sheduler)
 
                 with torch.cuda.amp.autocast():  # Включаем AMP
                     predicted_noise = model(xt, text_embs, time_emb, attention_mask)
@@ -273,14 +252,14 @@ class ModelManager():
                 print(f"Процентов {(i / len(val_loader)) * 100}, {end_time - start_time}")
 
                 if i % log_interval == 0:
-                    print(f"Batch: {i}, Current Loss: {loss_val.item():.4f}")
+                    print(f"Batch: {i}, Current Val Loss: {loss_val.item():.4f}")
 
             end_time_ep = time.time()
             print(f'Вал. заверш. {end_time_ep - start_time_ep}')
         return running_loss
 
     def test_model(self, e_model: encapsulated_data.EncapsulatedModel,
-                   e_loader: encapsulated_data.EncapsulatedDataloaders):
+                   e_loader: encapsulated_data.EncapsulatedDataloaders, sheduler):
         print("Тестирование")
         model = e_model.model
         device = e_model.device
@@ -304,11 +283,9 @@ class ModelManager():
                     device), attention_mask.to(device)
 
                 t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
-                time_emb = self.get_time_embedding(t, hyperparams.TIME_EMB_DIM)
+                time_emb = diff_proc.get_time_embedding(t, hyperparams.TIME_EMB_DIM)
 
-                xt, added_noise = self.forward_diffusion(images, t)
-                xt = xt.to(device)
-                added_noise = added_noise.to(device)
+                xt, added_noise = diff_proc.forward_diffusion(images, t, sheduler)
 
                 with torch.cuda.amp.autocast():  # Включаем AMP
                     predicted_noise = model(xt, text_embs, time_emb, attention_mask)
@@ -347,7 +324,7 @@ class ModelManager():
         # Загрузка
         model_filepath = model_dir + model_file
         checkpoint = torch.load(model_filepath)
-        e_model = encapsulated_data.EncapsulatedModel()
+        e_model = encapsulated_data.EncapsulatedModel(device)
 
         model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM, 1, 1, hyperparams.BATCH_SIZE,
                                 hyperparams.UNET_CONFIG).to(
@@ -368,7 +345,7 @@ class ModelManager():
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         history = checkpoint.get('history', {0: {'train_loss': math.inf,
                                                  'val_loss': math.inf}})  # Если модель была обучена, но во время её обучения ещё не был реализован функционал сохранения истории обучения
-        e_model.device = device
+        # e_model.device = device
         e_model.model = model
         e_model.optimizer = optimizer
         e_model.history = history
@@ -382,14 +359,65 @@ class ModelManager():
         text_embs, masks = dc.get_text_emb(text)
         model = e_model.model
         # ema = e_model.ema
-
         # Повторяем тензоры, чтобы размерность по батчам совпадала
         text_emb_batch = text_embs.unsqueeze(0).expand(hyperparams.BATCH_SIZE, -1, -1)  # (B, tokens, text_emb_dim)
         mask_batch = masks.unsqueeze(0).expand(hyperparams.BATCH_SIZE, -1)  # (B, tokens)
 
-        mask_batch = mask_batch.to(model.device)
-        text_emb_batch = text_emb_batch.to(model.device)
-        img = dm.reverse_diffusion(model, text_emb_batch, mask_batch, sheduler)
+        mask_batch = mask_batch.to(next(model.parameters()).device)
+        text_emb_batch = text_emb_batch.to(next(model.parameters()).device)
+        img = diff_proc.reverse_diffusion(model, text_emb_batch, mask_batch, sheduler)
         return img
 
+    def viz_my_model(self, e_model):
+        pass
+        # Предположим, у тебя есть модель
+        # model = e_model.model
+        # model.eval()
+        # device = next(model.parameters()).device
+        #
+        # # Создаём dummy-входы (примеры — адаптируй под себя!)
+        # dummy_x = torch.randn(16, 1, 32, 32, requires_grad=True, device=next(model.parameters()).device)
+        # dummy_txt_emb = torch.randn(16, 50, 512, requires_grad=True, device=next(model.parameters()).device)
+        # dummy_time_emb = torch.randn(16, 256, requires_grad=True, device=next(model.parameters()).device)
+        # dummy_attn_mask = torch.randn(16, 50, requires_grad=True, device=next(model.parameters()).device)
+        #
+        # # Предположим твоя модель
+        # model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM, 1, 1, hyperparams.BATCH_SIZE,
+        #                              hyperparams.UNET_CONFIG)
+        # model = model.to(device)
+        # model.eval()
+        # # Заворачиваем модель
+        # wrapped = nn_model.WrappedModel(model, dummy_txt_emb, dummy_time_emb, dummy_attn_mask)
+        # wrapped = wrapped.to(device)
+        # # Строим граф
+        # graph = hl.build_graph(wrapped, dummy_x)
+        # graph.save("unet_graph", format="png")
 
+        # Torchviz не заработал, у меня нет времени разбираться с ним!
+        # import onnx
+        # print(onnx.__version__)
+        # # Экспорт модели
+        # torch.onnx.export(
+        #     model,
+        #     (dummy_x, dummy_txt_emb, dummy_time_emb, dummy_attn_mask),  # <- кортеж входов
+        #     "multi_input_model.onnx",
+        #     input_names=["images", "text_embs", "t", "attn_mask"],
+        #     output_names=["output"],
+        #     opset_version=13,
+        #     dynamic_axes={
+        #         "images": {0: "batch_size"},
+        #         "text_embs": {0: "batch_size"},
+        #         "t": {0: "batch_size"},
+        #         "attn_mask": {0: "batch_size"},
+        #         "output": {0: "batch_size"},
+        #     }
+        # )
+
+        # Torchviz не заработал, у меня нет времени разбираться с ним!
+        # # Прогон через модель
+        # output = model(dummy_x, dummy_txt_emb, dummy_time_emb, dummy_attn_mask)
+        # # Создаём граф
+        # dot = make_dot(output, params=dict(model.named_parameters()))
+        # # Сохраняем как PDF или PNG
+        # dot.format = 'pdf'  # можно 'png'
+        # dot.render('unet_graph')

@@ -364,3 +364,16 @@ class MyUNet(nn.Module):
         x = self.single_conv_final(x)
         x = self.final(x)
         return x
+
+
+# Адаптер-модель для визуализации
+class WrappedModel(nn.Module):
+    def __init__(self, model, text_emb, time_emb, attn_mask):
+        super().__init__()
+        self.model = model
+        self.time_emb = time_emb
+        self.text_emb = text_emb
+        self.attn_mask = attn_mask
+
+    def forward(self, x):
+        return self.model(x, self.text_emb, self.time_emb, self.attn_mask)
