@@ -131,6 +131,7 @@ def reverse_diffusion(model, text_embedding, attn_mask, sheduler: NoiseSheduler)
             #     noise = torch.randn_like(x_t).to(device) * (1 - self.a[step]).sqrt()
             #     x_t += noise
             if i % 20 == 0:
+                # hyperparams.VIZ_STEP = True
                 vutils.save_image(x_t, f"trained/denoising/step_{step}.png", normalize=True)
             i += 1
     images = []

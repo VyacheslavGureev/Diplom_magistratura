@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torchviz import make_dot
+import models.hyperparams as HP
 
 
 class CrossAttentionMultiHead(nn.Module):
@@ -301,18 +302,33 @@ class MyUNet(nn.Module):
                 self.up_blocks.append(CrossAttentionMultiHead(txt_emb_dim, ub['out_C'] + ub['sc_C']))
 
         in_C_final = self.config['UP'][-1]['out_C'] + self.config['UP'][-1]['sc_C']
-        out_C_final = in_C_final // 2
-        self.up_final = SoftUpsample(in_C_final, out_C_final // self.channels_div)
-        in_C_final = out_C_final
-        out_C_final = in_C_final // 2
-        self.single_conv_final = nn.Conv2d(first_out_C + in_C_final // self.channels_div,
-                                           out_C_final // self.channels_div,
-                                           kernel_size=3, padding=1,
-                                           stride=1)
-        in_C_final = out_C_final
+        # out_C_final = self.orig_img_channels
+        # self.up_final = SoftUpsample(in_C_final, out_C_final // self.channels_div)
+        # in_C_final = out_C_final
+        # out_C_final = in_C_final // 2
+        # self.single_conv_final = nn.Conv2d(first_out_C + in_C_final // self.channels_div,
+        #                                    out_C_final // self.channels_div,
+        #                                    kernel_size=3, padding=1,
+        #                                    stride=1)
+        # in_C_final = out_C_final
         self.final = nn.Sequential(
             nn.Conv2d(in_C_final // self.channels_div, self.orig_img_channels, kernel_size=3, padding=1, stride=1),
         )  # В ddpm без финальной активации
+
+
+        # in_C_final = self.config['UP'][-1]['out_C'] + self.config['UP'][-1]['sc_C']
+        # out_C_final = in_C_final // 2
+        # self.up_final = SoftUpsample(in_C_final, out_C_final // self.channels_div)
+        # in_C_final = out_C_final
+        # out_C_final = in_C_final // 2
+        # self.single_conv_final = nn.Conv2d(first_out_C + in_C_final // self.channels_div,
+        #                                    out_C_final // self.channels_div,
+        #                                    kernel_size=3, padding=1,
+        #                                    stride=1)
+        # in_C_final = out_C_final
+        # self.final = nn.Sequential(
+        #     nn.Conv2d(in_C_final // self.channels_div, self.orig_img_channels, kernel_size=3, padding=1, stride=1),
+        # )  # В ddpm без финальной активации
 
     def create_down_block(self, in_channels, out_channels, time_emb_dim, batch_size, use_self_attn):
         if not use_self_attn:
@@ -345,6 +361,10 @@ class MyUNet(nn.Module):
         for bn in self.bottleneck:
             x = bn(x, text_emb, time_emb, attension_mask)
 
+        # if HP.VIZ_STEP:
+        #     HP.VIZ_STEP = False
+        #     visualize_tsne(x)
+
         # Декодер (upsampling)
         i = 0
         for decoder in self.up_blocks:
@@ -358,10 +378,10 @@ class MyUNet(nn.Module):
             elif isinstance(decoder, CrossAttentionMultiHead):
                 x = decoder(x, text_emb, attension_mask)
 
-        x = self.up_final(x)
-        skip = skip_connections[0]
-        x = torch.cat([x, skip], dim=1)
-        x = self.single_conv_final(x)
+        # x = self.up_final(x)
+        # skip = skip_connections[0]
+        # x = torch.cat([x, skip], dim=1)
+        # x = self.single_conv_final(x)
         x = self.final(x)
         return x
 
@@ -377,3 +397,52 @@ class WrappedModel(nn.Module):
 
     def forward(self, x):
         return self.model(x, self.text_emb, self.time_emb, self.attn_mask)
+
+
+from sklearn.manifold import TSNE
+import matplotlib.pyplot as plt
+import seaborn as sns
+import torch
+
+# Пример: latent_vectors — torch.Tensor [B, D], labels — torch.Tensor [B]
+def visualize_tsne(bottleneck_output):
+    latent = bottleneck_output  # размер [B, C, H, W]
+    B = latent.shape[0]
+    flattened_latent = latent.reshape(B, -1)  # → [B, C*H*W]
+
+    tsne = TSNE(n_components=2, perplexity=10, learning_rate=200, n_iter=1000)
+    latent_2d = tsne.fit_transform(flattened_latent.cpu().detach().numpy())
+
+    # labels — это ground truth метки для анализа кластеров
+    plt.figure(figsize=(8, 6))
+    plt.scatter(latent_2d[:, 0], latent_2d[:, 1], c='red', cmap='tab10', alpha=0.7)
+    plt.colorbar()
+    plt.title("t-SNE визуализация латентного пространства")
+    plt.savefig("trained/latent_dim/tsne_latent_dim_label_0.png", dpi=300)  # dpi — качество (точек на дюйм)
+    plt.close()
+    # plt.show()
+    # plt.pause(3600)
+
+
+
+    # # Переводим в numpy
+    # if isinstance(latent_vectors, torch.Tensor):
+    #     latent_vectors = latent_vectors.detach().cpu().numpy()
+    # if isinstance(labels, torch.Tensor):
+    #     labels = labels.cpu().numpy()
+    #
+    # # t-SNE
+    # tsne = TSNE(n_components=2, perplexity=perplexity, n_iter=n_iter, random_state=42)
+    # reduced = tsne.fit_transform(latent_vectors)
+    #
+    # # Визуализация
+    # plt.figure(figsize=(10, 8))
+    # sns.scatterplot(x=reduced[:, 0], y=reduced[:, 1], hue=labels, palette="tab10", s=60, alpha=0.8)
+    # plt.title("t-SNE visualization of latent space")
+    # plt.xlabel("Component 1")
+    # plt.ylabel("Component 2")
+    # plt.legend(title="Class")
+    # plt.grid(True)
+    # plt.tight_layout()
+    # plt.show()
+
