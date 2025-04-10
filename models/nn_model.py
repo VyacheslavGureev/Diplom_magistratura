@@ -301,19 +301,19 @@ class MyUNet(nn.Module):
             if ub['CA']:
                 self.up_blocks.append(CrossAttentionMultiHead(txt_emb_dim, ub['out_C'] + ub['sc_C']))
 
-        in_C_final = self.config['UP'][-1]['out_C'] + self.config['UP'][-1]['sc_C']
-        # out_C_final = self.orig_img_channels
-        # self.up_final = SoftUpsample(in_C_final, out_C_final // self.channels_div)
-        # in_C_final = out_C_final
-        # out_C_final = in_C_final // 2
-        # self.single_conv_final = nn.Conv2d(first_out_C + in_C_final // self.channels_div,
-        #                                    out_C_final // self.channels_div,
-        #                                    kernel_size=3, padding=1,
-        #                                    stride=1)
-        # in_C_final = out_C_final
-        self.final = nn.Sequential(
-            nn.Conv2d(in_C_final // self.channels_div, self.orig_img_channels, kernel_size=3, padding=1, stride=1),
-        )  # В ddpm без финальной активации
+        # in_C_final = self.config['UP'][-1]['out_C'] + self.config['UP'][-1]['sc_C']
+        # # out_C_final = self.orig_img_channels
+        # # self.up_final = SoftUpsample(in_C_final, out_C_final // self.channels_div)
+        # # in_C_final = out_C_final
+        # # out_C_final = in_C_final // 2
+        # # self.single_conv_final = nn.Conv2d(first_out_C + in_C_final // self.channels_div,
+        # #                                    out_C_final // self.channels_div,
+        # #                                    kernel_size=3, padding=1,
+        # #                                    stride=1)
+        # # in_C_final = out_C_final
+        # self.final = nn.Sequential(
+        #     nn.Conv2d(in_C_final // self.channels_div, self.orig_img_channels, kernel_size=3, padding=1, stride=1),
+        # )  # В ddpm без финальной активации
 
 
         # in_C_final = self.config['UP'][-1]['out_C'] + self.config['UP'][-1]['sc_C']
@@ -329,6 +329,22 @@ class MyUNet(nn.Module):
         # self.final = nn.Sequential(
         #     nn.Conv2d(in_C_final // self.channels_div, self.orig_img_channels, kernel_size=3, padding=1, stride=1),
         # )  # В ddpm без финальной активации
+
+        in_C_final = self.config['UP'][-1]['out_C'] + self.config['UP'][-1]['sc_C']
+        out_C_final = (in_C_final // 2) - first_out_C
+        self.up_final = SoftUpsample(in_C_final, out_C_final // self.channels_div)
+        # in_C_final = out_C_final
+        # out_C_final = in_C_final // 2
+        in_C = (first_out_C + out_C_final)
+        out_C = in_C//2
+        self.single_conv_final = nn.Conv2d(in_C // self.channels_div,
+                                           out_C // self.channels_div,
+                                           kernel_size=3, padding=1,
+                                           stride=1)
+        in_C = out_C
+        self.final = nn.Sequential(
+            nn.Conv2d(in_C // self.channels_div, self.orig_img_channels, kernel_size=3, padding=1, stride=1),
+        )  # В ddpm без финальной активации
 
     def create_down_block(self, in_channels, out_channels, time_emb_dim, batch_size, use_self_attn):
         if not use_self_attn:
@@ -378,10 +394,10 @@ class MyUNet(nn.Module):
             elif isinstance(decoder, CrossAttentionMultiHead):
                 x = decoder(x, text_emb, attension_mask)
 
-        # x = self.up_final(x)
-        # skip = skip_connections[0]
-        # x = torch.cat([x, skip], dim=1)
-        # x = self.single_conv_final(x)
+        x = self.up_final(x)
+        skip = skip_connections[0]
+        x = torch.cat([x, skip], dim=1)
+        x = self.single_conv_final(x)
         x = self.final(x)
         return x
 
