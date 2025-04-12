@@ -7,6 +7,7 @@ import torch.optim as optim
 
 import models.hyperparams as hyperparams
 import models.nn_model as nn_model
+import models.utils as utils
 
 
 # class CustomLoss(nn.Module):
@@ -72,14 +73,25 @@ import models.nn_model as nn_model
 
 # Данные про модель в одном месте
 class EncapsulatedModel:
-    def __init__(self, device):
+    def __init__(self, unet_config_file, device):
         # Создание модели с нуля
         self.device = device
         # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(self.device)
 
-        self.model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM, 1, 1, hyperparams.BATCH_SIZE,
-                                     hyperparams.UNET_CONFIG)
+        self.unet_config = utils.load_json(unet_config_file)
+
+        # self.unet_config = {'TEXT_EMB_DIM' : hyperparams.TEXT_EMB_DIM, 'TIME_EMB_DIM' : hyperparams.TIME_EMB_DIM,
+        #                'BATCH_SIZE' : hyperparams.BATCH_SIZE, 'ORIG_C' : 1,
+        #                'DOWN':
+        #                    [{'in_C': 16, 'out_C': 32, 'SA': False},
+        #                     {'in_C': 32, 'out_C': 64, 'SA': True},
+        #                     {'in_C': 64, 'out_C': 128, 'SA': False}],
+        #                'BOTTLENECK': [{'in_C': 128, 'out_C': 128}],
+        #                'UP': [{'in_C': 128, 'out_C': 64, 'sc_C': 64, 'SA': False, 'CA': False},
+        #                       {'in_C': 64 + 64, 'out_C': 32, 'sc_C': 32, 'SA': True, 'CA': True}]}
+
+        self.model = nn_model.MyUNet(self.unet_config)
         self.model.to(self.device)
 
         self.ema = EMA(self.model, self.device)

@@ -30,6 +30,18 @@ def main():
 
 
 def neural_func():
+    # unet_config = {'TEXT_EMB_DIM' : hyperparams.TEXT_EMB_DIM, 'TIME_EMB_DIM' : hyperparams.TIME_EMB_DIM,
+    #                'BATCH_SIZE' : hyperparams.BATCH_SIZE, 'ORIG_C' : 1,
+    #                'DOWN':
+    #                    [{'in_C': 16, 'out_C': 32, 'SA': False},
+    #                     {'in_C': 32, 'out_C': 64, 'SA': True},
+    #                     {'in_C': 64, 'out_C': 128, 'SA': False}],
+    #                'BOTTLENECK': [{'in_C': 128, 'out_C': 128}],
+    #                'UP': [{'in_C': 128, 'out_C': 64, 'sc_C': 64, 'SA': False, 'CA': False},
+    #                       {'in_C': 64 + 64, 'out_C': 32, 'sc_C': 32, 'SA': True, 'CA': True}]}
+    # utils.save_json(unet_config, hyperparams.CURRENT_MODEL_DIR + hyperparams.CURRENT_MODEL_CONFIG)
+    # print('saved')
+
     # # Загружаем CLIP
     # tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
     # text_encoder = CLIPTextModel.from_pretrained("openai/clip-vit-base-patch32")
@@ -56,9 +68,9 @@ def neural_func():
 
     shutdown_flag = False
     # mode = 'img'  #
-    # mode = 'create_train_test_save'  #
+    mode = 'create_train_test_save'  #
     # mode = 'load_train_test_save'  #
-    mode = 'load_gen'  #
+    # mode = 'load_gen'  #
     # mode = 'debug'  #
 
     # mode = 'create_train_save'  #
@@ -69,7 +81,10 @@ def neural_func():
     model_manager = manager.ModelManager()
     sheduler = diff_proc.NoiseSheduler(hyperparams.T, 'linear', device)
     if mode == 'load_gen':
-        em = model_manager.load_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR, hyperparams.CURRENT_MODEL_NAME,
+        em = model_manager.load_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR,
+                                                         hyperparams.CURRENT_MODEL_NAME,
+                                                         hyperparams.CURRENT_MODEL_DIR +
+                                                         hyperparams.CURRENT_MODEL_CONFIG,
                                                          device)
         print('Загрузка завершена!')
         # text = "Это цифра ноль"
@@ -112,22 +127,33 @@ def neural_func():
         #                                                 hyperparams.CURRENT_MODEL_NAME)
         #     print('Готово!')
         elif mode == 'create_train_test_save':
-            em = model_manager.create_model(device)
+            em = model_manager.create_model(hyperparams.CURRENT_MODEL_DIR +
+                                            hyperparams.CURRENT_MODEL_CONFIG,
+                                            device)
             model_manager.train_model(em, ed, hyperparams.EPOCHS, sheduler)
-            model_manager.test_model(em, ed, sheduler)
+            # model_manager.test_model(em, ed, sheduler)
             print('Тестирование завершено!')
-            model_manager.save_my_model_in_middle_train(em, hyperparams.CURRENT_MODEL_DIR,
-                                                        hyperparams.CURRENT_MODEL_NAME)
+            model_manager.save_my_model_in_middle_train(em,
+                                                        hyperparams.CURRENT_MODEL_DIR,
+                                                        hyperparams.CURRENT_MODEL_NAME,
+                                                        hyperparams.CURRENT_MODEL_DIR +
+                                                        hyperparams.CURRENT_MODEL_CONFIG)
             print('Готово! create_train_test_save')
         elif mode == 'load_train_test_save':
             em = model_manager.load_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR,
-                                                             hyperparams.CURRENT_MODEL_NAME, device)
+                                                             hyperparams.CURRENT_MODEL_NAME,
+                                                             hyperparams.CURRENT_MODEL_DIR +
+                                                             hyperparams.CURRENT_MODEL_CONFIG,
+                                                             device)
             print('Загрузка завершена!')
             model_manager.train_model(em, ed, hyperparams.EPOCHS, sheduler)
             model_manager.test_model(em, ed, sheduler)
             print('Тестирование завершено!')
-            model_manager.save_my_model_in_middle_train(em, hyperparams.CURRENT_MODEL_DIR,
-                                                        hyperparams.CURRENT_MODEL_NAME)
+            model_manager.save_my_model_in_middle_train(em,
+                                                        hyperparams.CURRENT_MODEL_DIR,
+                                                        hyperparams.CURRENT_MODEL_NAME,
+                                                        hyperparams.CURRENT_MODEL_DIR +
+                                                        hyperparams.CURRENT_MODEL_CONFIG)
             print('Продолжение тренировки завершено!')
         elif mode == 'debug':
             # em = model_manager.create_model(device)

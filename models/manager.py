@@ -23,6 +23,7 @@ import models.dataset_creator as dc
 import models.encapsulated_data as encapsulated_data
 import models.nn_model as nn_model
 import models.diffusion_processes as diff_proc
+import models.utils as utils
 
 
 class EarlyStopping:
@@ -100,8 +101,8 @@ class ModelManager():
         pass
 
     # --- Создание модели ---
-    def create_model(self, device):
-        return encapsulated_data.EncapsulatedModel(device)
+    def create_model(self, unet_config_file, device):
+        return encapsulated_data.EncapsulatedModel(unet_config_file, device)
 
     def create_dataloaders(self, dataset, train_size_percent, val_size_percent):
         # Разделяем датасеты
@@ -125,8 +126,8 @@ class ModelManager():
         early_stopping = EarlyStopping(patience=5)
         for epoch in range(epochs):
             running_train_loss = self.training_model(e_model, e_loader, sheduler)
-            running_val_loss = self.validating_model(e_model, e_loader, sheduler)
-            # running_val_loss = 0
+            # running_val_loss = self.validating_model(e_model, e_loader, sheduler)
+            running_val_loss = 0
 
             avg_loss_train = running_train_loss / len(e_loader.train)
             avg_loss_val = running_val_loss / len(e_loader.val)
@@ -301,12 +302,16 @@ class ModelManager():
         avg_test_loss = test_loss / len(test_loader)
         print(f'Test Loss: {avg_test_loss:.4f}')
 
-    def save_my_model_in_middle_train(self, e_model: encapsulated_data.EncapsulatedModel, model_dir, model_file):
+    def save_my_model_in_middle_train(self, e_model: encapsulated_data.EncapsulatedModel,
+                                      model_dir,
+                                      model_file,
+                                      unet_config_file):
         # Сохранение
         model_filepath = model_dir + model_file
         model = e_model.model
         optimizer = e_model.optimizer
         history = e_model.history
+        unet_config = e_model.unet_config
 
         model.cpu()
         ema = e_model.ema
@@ -319,16 +324,16 @@ class ModelManager():
             'ema': ema_model.state_dict(),  # EMA-веса
             'decay': ema.decay
         }, model_filepath)
+        utils.save_json(unet_config, unet_config_file)
 
-    def load_my_model_in_middle_train(self, model_dir, model_file, device):
+    def load_my_model_in_middle_train(self, model_dir, model_file, model_config, device):
         # Загрузка
         model_filepath = model_dir + model_file
         checkpoint = torch.load(model_filepath)
-        e_model = encapsulated_data.EncapsulatedModel(device)
+        e_model = encapsulated_data.EncapsulatedModel(model_config, device)
+        unet_config = e_model.unet_config
 
-        model = nn_model.MyUNet(hyperparams.TEXT_EMB_DIM, hyperparams.TIME_EMB_DIM, 1, 1, hyperparams.BATCH_SIZE,
-                                hyperparams.UNET_CONFIG).to(
-            device)
+        model = nn_model.MyUNet(unet_config).to(device)
         model.load_state_dict(checkpoint['model_state_dict'])
         cross_attn_params = []
         other_params = []

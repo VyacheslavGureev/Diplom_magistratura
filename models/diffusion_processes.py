@@ -46,8 +46,6 @@ class NoiseSheduler():
         print(f"Min beta: {self.b.min().item()}")
         print(f"Max beta: {self.b.max().item()}")
         import matplotlib.pyplot as plt
-        T = 1000
-        s = 0.008
         plt.plot(self.b.cpu().numpy(), label="Beta")
         plt.xlabel("Timestep")
         plt.ylabel("Beta")
@@ -100,7 +98,6 @@ def reverse_diffusion(model, text_embedding, attn_mask, sheduler: NoiseSheduler)
     orig_channels = 1
     x_t = torch.randn(hyperparams.BATCH_SIZE, orig_channels, hyperparams.IMG_SIZE, hyperparams.IMG_SIZE,
                       device=next(model.parameters()).device)  # (B, C, H, W)
-    # self.show_image(x_t[5])
     t_tensor = torch.arange(0, hyperparams.T, 1, dtype=torch.int, device=next(model.parameters()).device)
     t_tensor = t_tensor.unsqueeze(1)
     t_tensor = t_tensor.expand(hyperparams.T, hyperparams.BATCH_SIZE)
@@ -117,8 +114,6 @@ def reverse_diffusion(model, text_embedding, attn_mask, sheduler: NoiseSheduler)
         for step in tqdm(range(hyperparams.T - 1, -1, -1), colour='white'):
             time_embedding = get_time_embedding(t_tensor[step], hyperparams.TIME_EMB_DIM)
             predicted_noise = model(x_t, text_embedding, time_embedding, attn_mask)
-            # if step == 1:
-            # self.show_image(predicted_noise[5])
             # guidance_scale = 0.5  # Усиление текстового сигнала
             # predicted_noise_uncond = model(x_t, None, t_i, None) # Безусловное предсказание
             # predicted_noise_cond = model(x_t, text_embedding, t_i, attn_mask)  # Условное предсказание
@@ -128,7 +123,7 @@ def reverse_diffusion(model, text_embedding, attn_mask, sheduler: NoiseSheduler)
             # Можно добавить дополнительные шаги, такие как коррекция или уменьшение шума
             # Например, можно добавить немного шума обратно с каждым шагом:
             # if step > 0:  # Добавляем случайный шум на всех шагах, кроме последнего
-            #     noise = torch.randn_like(x_t).to(device) * (1 - self.a[step]).sqrt()
+            #     noise = torch.randn_like(x_t, device=next(model.parameters()).device) * (1 - sheduler.a[step]).sqrt() * 0.1
             #     x_t += noise
             if i % 20 == 0:
                 # hyperparams.VIZ_STEP = True
@@ -139,5 +134,4 @@ def reverse_diffusion(model, text_embedding, attn_mask, sheduler: NoiseSheduler)
                        reverse=True):
         images.append(imageio.imread(os.path.join("trained/denoising", step)))
     imageio.mimsave("trained/denoising/denoising_process.gif", images, duration=0.3)  # 0.3 секунды на кадр
-    # Вернем восстановленное изображение
     return x_t

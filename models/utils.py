@@ -1,4 +1,5 @@
 import pickle
+import json
 import matplotlib.pyplot as plt
 
 
@@ -24,3 +25,16 @@ def save_data_to_file(obj, filepath):
     with open(filepath, "wb") as f:
         pickle.dump(obj, f)
     print(f'Объект {type(obj)} успешно сохранён в {filepath}')
+
+
+def load_json(filepath):
+    with open(filepath, "r") as f:
+        json_obj = json.load(f)
+    print(f'Объект json {type(json_obj)} успешно загружен из {filepath}')
+    return json_obj
+
+
+def save_json(json_obj, filepath):
+    with open(filepath, "w") as f:
+        json.dump(json_obj, f, indent=4)
+    print(f'Объект json {type(json_obj)} успешно сохранён в {filepath}')

@@ -259,18 +259,14 @@ class SoftUpsample(nn.Module):
 
 
 class MyUNet(nn.Module):
-    def __init__(self,
-                 txt_emb_dim,
-                 time_emb_dim,
-                 orig_img_channels,
-                 channels_div,
-                 batch_size,
-                 config
-                 ):
+    def __init__(self, config):
         super().__init__()
         self.config = config
-        self.orig_img_channels = orig_img_channels
-        self.channels_div = channels_div
+
+        self.txt_emb_dim = self.config['TEXT_EMB_DIM']
+        self.time_emb_dim = self.config['TIME_EMB_DIM']
+        self.batch_size = self.config['BATCH_SIZE']
+        self.orig_img_channels = self.config['ORIG_C']
 
         first_out_C = self.config['DOWN'][0]['in_C']
 
@@ -281,7 +277,7 @@ class MyUNet(nn.Module):
         down_blocks = self.config['DOWN']
         for db in down_blocks:
             self.down_blocks.append(
-                self.create_down_block(db['in_C'], db['in_C'], time_emb_dim, batch_size, db['SA']))
+                self.create_down_block(db['in_C'], db['in_C'], self.time_emb_dim, self.batch_size, db['SA']))
             self.down_blocks.append(
                 nn.Conv2d(db['in_C'], db['out_C'], kernel_size=3, padding=1, stride=2))  # уменьшение размера в 2 раза
 
@@ -289,17 +285,17 @@ class MyUNet(nn.Module):
         bottleneck = self.config['BOTTLENECK']
         for bn in bottleneck:
             self.bottleneck.append(
-                self.create_bottleneck_block(bn['in_C'], bn['out_C'], txt_emb_dim, time_emb_dim, batch_size))
+                self.create_bottleneck_block(bn['in_C'], bn['out_C'], self.txt_emb_dim, self.time_emb_dim, self.batch_size))
 
         self.up_blocks = nn.ModuleList()
         up_blocks = self.config['UP']
         for ub in up_blocks:
             self.up_blocks.append(SoftUpsample(ub['in_C'], ub['out_C']))
             self.up_blocks.append(
-                self.create_up_block(ub['out_C'] + ub['sc_C'], ub['out_C'] + ub['sc_C'], time_emb_dim, batch_size,
+                self.create_up_block(ub['out_C'] + ub['sc_C'], ub['out_C'] + ub['sc_C'], self.time_emb_dim, self.batch_size,
                                      ub['SA']))
             if ub['CA']:
-                self.up_blocks.append(CrossAttentionMultiHead(txt_emb_dim, ub['out_C'] + ub['sc_C']))
+                self.up_blocks.append(CrossAttentionMultiHead(self.txt_emb_dim, ub['out_C'] + ub['sc_C']))
 
         # in_C_final = self.config['UP'][-1]['out_C'] + self.config['UP'][-1]['sc_C']
         # # out_C_final = self.orig_img_channels
@@ -332,18 +328,16 @@ class MyUNet(nn.Module):
 
         in_C_final = self.config['UP'][-1]['out_C'] + self.config['UP'][-1]['sc_C']
         out_C_final = (in_C_final // 2) - first_out_C
-        self.up_final = SoftUpsample(in_C_final, out_C_final // self.channels_div)
-        # in_C_final = out_C_final
-        # out_C_final = in_C_final // 2
+        self.up_final = SoftUpsample(in_C_final, out_C_final)
         in_C = (first_out_C + out_C_final)
         out_C = in_C//2
-        self.single_conv_final = nn.Conv2d(in_C // self.channels_div,
-                                           out_C // self.channels_div,
+        self.single_conv_final = nn.Conv2d(in_C,
+                                           out_C,
                                            kernel_size=3, padding=1,
                                            stride=1)
         in_C = out_C
         self.final = nn.Sequential(
-            nn.Conv2d(in_C // self.channels_div, self.orig_img_channels, kernel_size=3, padding=1, stride=1),
+            nn.Conv2d(in_C, self.orig_img_channels, kernel_size=3, padding=1, stride=1),
         )  # В ddpm без финальной активации
 
     def create_down_block(self, in_channels, out_channels, time_emb_dim, batch_size, use_self_attn):
