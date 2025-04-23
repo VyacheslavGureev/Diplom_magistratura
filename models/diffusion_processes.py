@@ -55,6 +55,15 @@ class NoiseSheduler():
         plt.pause(3600)
 
 
+class NoiseShedulerAdapt(NoiseSheduler):
+    def __init__(self, T, type, device):
+        super().__init__(T, type, device)
+
+    def update_coeffs(self, D):
+        self.a = D * ((1 / D) - self.b)
+        self.a_bar = torch.cumprod(self.a, dim=0)
+
+
 def get_time_embedding(time_steps: torch.Tensor, t_emb_dim: int) -> torch.Tensor:
     """
     Transform a scalar time-step into a vector representation of size t_emb_dim.

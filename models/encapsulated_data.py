@@ -7,6 +7,7 @@ import torch.optim as optim
 
 import models.hyperparams as hyperparams
 import models.nn_model as nn_model
+import models.nn_model_adaptive as nn_model_adapt
 import models.utils as utils
 
 
@@ -94,7 +95,7 @@ class EncapsulatedModel:
         self.model = nn_model.MyUNet(self.unet_config)
         self.model.to(self.device)
 
-        self.ema = EMA(self.model, self.device)
+        self.ema = EMA(self.model, self.device)  # ??? (пока не работаю с ema, в будущем доработаю)
 
         cross_attn_params = []
         other_params = []
@@ -109,8 +110,55 @@ class EncapsulatedModel:
         ], weight_decay=1e-4)
 
         self.criterion = nn.MSELoss()
+        # можно ещё добавлять KL-loss (как в оригинале ddpm, но её можно опустить) или VLB-loss
         # self.criterion = custom_loss
         self.history = {0: {'train_loss': math.inf, 'val_loss': math.inf}}
+
+
+def kl_divergence(mu, logvar):
+    return (0.5 * (mu.pow(2) + logvar.exp() - 1 - logvar)).mean()
+
+    # return (-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1)).mean()
+
+def adapt_loss(e, e_a, e_a_pred, mu, D, mse=torch.nn.MSELoss()):
+    lam_1 = 0.5
+    lam_2 = 0.5
+    lam_3 = 1
+    lam_4 = 0.1
+    logvar = torch.log(D + 1e-8)
+    L = lam_1 * mse(e, e_a) + lam_2 * (
+            mse(torch.fft.fft2(e).real, torch.fft.fft2(e_a).real) + mse(torch.fft.fft2(e).imag,
+                                                                        torch.fft.fft2(e_a).imag)) + lam_3 * mse(
+        e_a_pred,
+        e_a) + lam_4 * kl_divergence(
+        mu, logvar)
+    return L.mean()
+
+
+class EncapsulatedModelAdaptive(EncapsulatedModel):
+    def __init__(self, unet_config_file, adaptive_config_file, device):
+        super().__init__(unet_config_file, device)
+        self.adaptive_config = utils.load_json(adaptive_config_file)
+
+        self.adapt_model = nn_model_adapt.MyAdaptUNet(self.adaptive_config)
+        self.adapt_model.to(self.device)
+
+        cross_attn_params = []
+        other_params = []
+        for name, param in self.adapt_model.named_parameters():
+            if "cross_attn" in name:  # Указываем название слоев
+                cross_attn_params.append(param)  # Отдельный список для Cross-Attention
+            else:
+                other_params.append(param)  # Остальные параметры
+        self.optimizer.add_param_group({
+            "params": other_params,
+            "lr": hyperparams.LR  # обычный LR
+        })
+        self.optimizer.add_param_group({
+            "params": cross_attn_params,
+            "lr": hyperparams.LR  # можно уменьшить, если надо
+        })
+        self.criterion_adapt = adapt_loss
 
 
 class EMA:
