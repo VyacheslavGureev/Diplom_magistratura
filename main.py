@@ -221,6 +221,8 @@ def adaptive_ddpm():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_manager = manager.ModelManager()
     sheduler = diff_proc.NoiseShedulerAdapt(hyperparams.T, 'linear', device)
+    # sheduler = diff_proc.NoiseShedulerAdapt(3, 'linear', device)
+    # sheduler.update_coeffs(torch.full((3,), 2, device=device))
     if mode == 'load_gen':
         em = model_manager.load_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR,
                                                          hyperparams.CURRENT_MODEL_NAME,
@@ -268,13 +270,14 @@ def adaptive_ddpm():
         #                                                 hyperparams.CURRENT_MODEL_NAME)
         #     print('Готово!')
         elif mode == 'create_train_test_save':
-
-
-
-            em = model_manager.create_model(hyperparams.CURRENT_MODEL_DIR +
+            em = model_manager.create_model_adapt(
+                                            hyperparams.CURRENT_MODEL_DIR +
                                             hyperparams.CURRENT_MODEL_CONFIG,
+                                            hyperparams.CURRENT_MODEL_DIR +
+                                            hyperparams.CURRENT_MODEL_CONFIG_ADAPT,
                                             device)
             model_manager.train_model(em, ed, hyperparams.EPOCHS, sheduler)
+
             # model_manager.test_model(em, ed, sheduler)
             print('Тестирование завершено!')
             model_manager.save_my_model_in_middle_train(em,

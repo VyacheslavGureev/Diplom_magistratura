@@ -118,21 +118,20 @@ class EncapsulatedModel:
 def kl_divergence(mu, logvar):
     return (0.5 * (mu.pow(2) + logvar.exp() - 1 - logvar)).mean()
 
-    # return (-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1)).mean()
 
 def adapt_loss(e, e_a, e_a_pred, mu, D, mse=torch.nn.MSELoss()):
     lam_1 = 0.5
     lam_2 = 0.5
     lam_3 = 1
     lam_4 = 0.1
-    logvar = torch.log(D + 1e-8)
+    logvar = torch.log(D.clamp(min=1e-8))
     L = lam_1 * mse(e, e_a) + lam_2 * (
             mse(torch.fft.fft2(e).real, torch.fft.fft2(e_a).real) + mse(torch.fft.fft2(e).imag,
                                                                         torch.fft.fft2(e_a).imag)) + lam_3 * mse(
         e_a_pred,
         e_a) + lam_4 * kl_divergence(
         mu, logvar)
-    return L.mean()
+    return L
 
 
 class EncapsulatedModelAdaptive(EncapsulatedModel):
@@ -160,6 +159,30 @@ class EncapsulatedModelAdaptive(EncapsulatedModel):
         })
         self.criterion_adapt = adapt_loss
 
+        self.adapt_model.apply(self.init_weights_unit_var)
+
+    def init_weights_unit_var(self, module):
+        try:
+            nn.init.normal_(module.weight, mean=0.0, std=1.0)
+            if module.bias is not None:
+                nn.init.constant_(module.bias, 0.0)
+        except:
+            pass
+
+
+# Данные про датасет в одном месте
+class EncapsulatedDataloaders:
+    def __init__(self, train, val, test):
+        self.train = train
+        self.val = val
+        self.test = test
+
+
+class EncapsulatedDataloadersTextDescr(EncapsulatedDataloaders):
+    def __init__(self, train, val, test, text_descr):
+        super().__init__(train, val, test)
+        self.text_descr = text_descr
+
 
 class EMA:
     def __init__(self, model, device):  # для mnist хорошо 0,99
@@ -177,11 +200,3 @@ class EMA:
         with torch.no_grad():
             for ema_param, model_param in zip(self.ema_model.parameters(), self.model.parameters()):
                 ema_param.data.mul_(self.decay).add_(model_param.data, alpha=1 - self.decay)  # EMA обновление
-
-
-# Данные про датасет в одном месте
-class EncapsulatedDataloaders:
-    def __init__(self, train, val, test):
-        self.train = train
-        self.val = val
-        self.test = test

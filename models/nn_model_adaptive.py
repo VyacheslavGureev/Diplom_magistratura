@@ -224,7 +224,7 @@ class MyAdaptUNet(nn.Module):
         else:
             return ResNetBlock(in_channels, out_channels, time_emb_dim, batch_size)
 
-    def forward(self, x, text_emb, time_emb, attension_mask):
+    def forward(self, x, text_emb, time_emb, attension_mask): # time_emb будет None
         # применение FFT
         if self.apply_fft:
             x_fft = torch.fft.fft2(x)
@@ -276,3 +276,6 @@ class MyAdaptUNet(nn.Module):
         else:
             x = x_data[0]
         return x
+
+
+

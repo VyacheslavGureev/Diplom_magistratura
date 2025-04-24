@@ -10,11 +10,14 @@ import models.hyperparams as hyperparams
 
 class NoiseSheduler():
     def __init__(self, T, type, device):
+        # Обычно bt возрастает, at убывает, at_bar убывает быстро
         self.device = device
         if type == 'linear':
             # Максимально стандартное линейное расписание
             beta_start = 1e-4
             beta_end = 0.02
+            # beta_start = 0.1
+            # beta_end = 0.2
             self.create_diff_sheduler_linear(T, beta_start, beta_end)
         elif type == 'cosine':
             s = 0.008
@@ -59,9 +62,13 @@ class NoiseShedulerAdapt(NoiseSheduler):
     def __init__(self, T, type, device):
         super().__init__(T, type, device)
 
+    # D dim is (T,)
     def update_coeffs(self, D):
-        self.a = D * ((1 / D) - self.b)
+        D = D.to(self.device)
+        self.a = 1 - self.b * D
+        # self.a = D * ((1 / D) - self.b)
         self.a_bar = torch.cumprod(self.a, dim=0)
+        # print('1')
 
 
 def get_time_embedding(time_steps: torch.Tensor, t_emb_dim: int) -> torch.Tensor:
@@ -91,13 +98,14 @@ def get_time_embedding(time_steps: torch.Tensor, t_emb_dim: int) -> torch.Tensor
 
 
 # --- Определение форвардного процесса (зашумление) ---
-def forward_diffusion(x0: torch.Tensor, t: torch.Tensor, sheduler: NoiseSheduler, noise=None):
+def forward_diffusion(x0: torch.Tensor, t: torch.Tensor, sheduler, noise=None):
     """ Добавляет стандартный гауссовский шум к изображению """
     # В общем случае noise может быть не только гауссовским
     if noise is None:
         noise = torch.randn_like(x0, requires_grad=False, device=x0.device)
-    at = sheduler.a_bar[t][:, None, None, None]
-    xt = torch.sqrt(at) * x0 + torch.sqrt(1 - at) * noise
+    at_bar = sheduler.a_bar[t][:, None, None, None]
+    # если кэфы правильно пересчитаны с дисперсией шума (любого), то замкнутая формула не меняется
+    xt = torch.sqrt(at_bar) * x0 + torch.sqrt(1 - at_bar) * noise
     return xt, noise
 
 

@@ -23,6 +23,16 @@ def collate_fn(batch):
     return images, text_embs, masks
 
 
+def collate_fn_text_dataset(batch):
+    if len(batch) % hyperparams.BATCH_SIZE != 0:
+        additional_batch = random.choices(batch, k=hyperparams.BATCH_SIZE - (len(batch) % hyperparams.BATCH_SIZE))
+        batch = batch + additional_batch
+    text_embs, masks = zip(*batch)  # Разбираем батч по частям
+    text_embs = torch.stack(text_embs)  # Объединяем текстовые эмбеддинги (B, max_length, txt_emb_dim)
+    masks = torch.stack(masks)  # Объединяем маски внимания (B, max_length)
+    return text_embs, masks
+
+
 class MNISTTextDataset(Dataset):
     def __init__(self, root, train, transform, tokenizer, text_encoder, max_len_tokens):
         self.mnist = datasets.MNIST(root=root, train=train, download=True, transform=transform)
@@ -39,18 +49,6 @@ class MNISTTextDataset(Dataset):
             8: ["Нарисована цифра восемь", "8", "восемь", "восьмёрка"],
             9: ["Рукописная девятка", "9", "девять", "девятка"]
         }
-        # self.TEXT_DESCRIPTIONS = {
-        #     0: "0",
-        #     1: "1",
-        #     2: "2",
-        #     3: "3",
-        #     4: "4",
-        #     5: "5",
-        #     6: "6",
-        #     7: "7",
-        #     8: "8",
-        #     9: "9"
-        # }
         self.tokenizer = tokenizer
         self.text_encoder = text_encoder
         self.max_len_tokens = max_len_tokens
@@ -85,8 +83,53 @@ class MNISTTextDataset(Dataset):
             # if random.random() < self.drop_conditioning_p:
             #     text_emb_reduced = torch.zeros_like(text_emb_reduced)  # Обнуляем текстовый эмбеддинг
             #     attention_mask = torch.zeros_like(attention_mask)
-        # text_emb_reduced = F.normalize(text_emb_reduced, p=2, dim=-1)
+        text_emb_reduced = F.normalize(text_emb_reduced, p=2, dim=-1)
         return image, text_emb_reduced, attention_mask
+
+
+class MNISTTextDescriptDataset(Dataset):
+    def __init__(self, tokenizer, text_encoder, max_len_tokens):
+        # Текстовые описания
+        self.TEXT_DESCRIPTIONS = [
+            ["Это цифра ноль", "0", "ноль", "нуль"],
+            ["Изображена единица", "1", "единица", "один"],
+            ["Нарисована цифра два", "2", "два", "двойка"],
+            ["На картинке цифра три", "3", "три", "тройка"],
+            ["Четыре, написанное от руки", "4", "четыре", "четвёрка"],
+            ["Это пятерка", "5", "пять", "пятёрка"],
+            ["Цифра шесть, нарисованная от руки", "6", "шесть", "шестёрка"],
+            ["На изображении семерка", "7", "семь", "семёрка"],
+            ["Нарисована цифра восемь", "8", "восемь", "восьмёрка"],
+            ["Рукописная девятка", "9", "девять", "девятка"]
+        ]
+        self.tokenizer = tokenizer
+        self.text_encoder = text_encoder
+        self.max_len_tokens = max_len_tokens
+        self.drop_conditioning_p = 0.15  # Вероятность обнуления conditioning
+        # 36 - max len
+
+    def __len__(self):
+        return len(self.TEXT_DESCRIPTIONS)
+
+    def __getitem__(self, idx):
+        caption = self.TEXT_DESCRIPTIONS[idx][1]  # Берем описание цифры
+        # caption = self.add_label_smoothing(caption, prob=0.20)  # 20% слов заменяются
+        tokens = self.tokenizer(
+            caption,
+            return_tensors="pt",
+            padding="max_length",  # Делаем паддинг до max_length
+            truncation=True,  # Обрезаем слишком длинные тексты
+            max_length=self.max_len_tokens  # Устанавливаем максимальную длину
+        )
+        attention_mask = tokens['attention_mask'].squeeze(0)  # (max_length,)
+        with torch.no_grad():
+            text_emb_reduced = self.text_encoder(**tokens).last_hidden_state.squeeze(0)  # (max_length, txt_emb_dim)
+            # if random.random() < self.drop_conditioning_p:
+            #     text_emb_reduced = torch.zeros_like(text_emb_reduced)  # Обнуляем текстовый эмбеддинг
+            #     attention_mask = torch.zeros_like(attention_mask)
+        # Текстовые эмбеддинги обычно не нормализуют в ddpm (но в других моделях могут нормализовывать),
+        # маску внимания - никогда и ни в каких моделях не нормализуют
+        return text_emb_reduced, attention_mask
 
 
 class ImageTextDataset(Dataset):
@@ -170,6 +213,17 @@ def create_dataset_mnist(folder, train_flag):
                                tokenizer=tokenizer,
                                text_encoder=text_encoder,
                                max_len_tokens=hyperparams.MAX_LEN_TOKENS)
+    return dataset
+
+
+# --- Создание датасета для обучения ---
+def create_dataset_mnist_text_descr():
+    tokenizer = utils.load_data_from_file('datas/embedders/tokenizer.pkl')
+    text_encoder = utils.load_data_from_file('datas/embedders/text_encoder.pkl')
+    dataset = MNISTTextDescriptDataset(
+        tokenizer=tokenizer,
+        text_encoder=text_encoder,
+        max_len_tokens=hyperparams.MAX_LEN_TOKENS)
     return dataset
 
 
