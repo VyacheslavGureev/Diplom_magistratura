@@ -19,6 +19,7 @@ import models.diffusion_processes as diff_proc
 import models.utils as utils
 import models.encapsulated_data as encapsulated_data
 
+# TODO: Продолжить проверку и написание
 
 def main():
     pass
@@ -275,7 +276,6 @@ def adaptive_ddpm():
                                             hyperparams.CURRENT_MODEL_CONFIG,
                                             hyperparams.CURRENT_MODEL_DIR +
                                             hyperparams.CURRENT_MODEL_CONFIG_ADAPT,
-                                            sheduler,
                                             device)
             model_manager.train_model(em, ed, hyperparams.EPOCHS, sheduler)
 

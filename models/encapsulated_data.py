@@ -1,5 +1,6 @@
 import math
 import copy
+import time
 
 import torch
 import torch.nn as nn
@@ -10,9 +11,10 @@ import models.nn_model as nn_model
 import models.nn_model_adaptive as nn_model_adapt
 import models.nn_model_combine as nn_model_combine
 import models.utils as utils
+import models.diffusion_processes as diff_proc
+
 
 # TODO: Предварительно всё правильно
-
 # Данные про модель в одном месте. Решение в стиле "тяжёлого" ООП, через setup
 # Базовый класс
 class ModelInOnePlace:
@@ -69,10 +71,10 @@ def adapt_loss(e, e_a, e_a_pred, mu, D, mse=torch.nn.MSELoss()):
 
 
 class EncapsulatedModelAdaptive(ModelInOnePlace):
-    def setup(self, unet_config_file, adaptive_config_file, sheduler):
+    def setup(self, unet_config_file, adaptive_config_file):
         adaptive_config = utils.load_json(adaptive_config_file)
         unet_config = utils.load_json(unet_config_file)
-        self.model = nn_model_combine.MyCombineModel(adaptive_config, unet_config, sheduler)
+        self.model = nn_model_combine.MyCombineModel(adaptive_config, unet_config)
         self.model.to(self.device)
         cross_attn_params = []
         other_params = []
@@ -93,6 +95,84 @@ class EncapsulatedModelAdaptive(ModelInOnePlace):
             nn.init.normal_(module.weight, mean=0.0, std=1.0)
         if hasattr(module, 'bias') and module.bias is not None:
             nn.init.constant_(module.bias, 0.0)
+
+    # Пример делигирования функции тренировки объекту модели
+    # Это Visitor-like подход, корректный с точки зрения ООП
+    def training_step(self, e_loader, sheduler):
+        print("Тренировка адапт")
+        train_loader = e_loader.train
+        text_descr_loader = e_loader.text_descr
+        self.model.eval()  # Включаем режим обучения
+        running_loss = 0.0
+        log_interval = 50  # Выводим лосс каждые 50 батчей
+        i = 0
+        # start_time_ep = time.time()
+        all_outputs = []
+        with torch.no_grad():
+            for text_embs, attention_mask in text_descr_loader:
+                for _ in range(100):  # 100 разных шумов на один текст
+                    text_embs, attention_mask = text_embs.to(self.device), attention_mask.to(self.device)
+                    noise = torch.randn(hyperparams.BATCH_SIZE, hyperparams.BATCH_SIZE, hyperparams.IMG_SIZE,
+                                        hyperparams.IMG_SIZE).to(self.device)
+                    with torch.cuda.amp.autocast():  # Включаем AMP
+                        output = self.model.adaptive_block(noise, text_embs, None, attention_mask)
+                    all_outputs.append(output.detach())
+        outputs_tensor = torch.cat(all_outputs, dim=0)
+        mu = outputs_tensor.mean()
+        D = outputs_tensor.std()
+        sheduler.update_coeffs(torch.full((hyperparams.T,), D, device=self.device))
+        self.model.train()
+        scaler = torch.cuda.amp.GradScaler()
+        for images, text_embs, attention_mask in train_loader:
+            if hyperparams.OGRANICHITEL:
+                if i == hyperparams.N_OGRANICHITEL:
+                    print('Трен. заверш. адапт')
+                    break
+            # start_time = time.time()
+            images, text_embs, attention_mask = images.to(self.device), text_embs.to(self.device), attention_mask.to(self.device)
+            self.optimizer.zero_grad()
+            t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=self.device)  # случайные шаги t
+            time_emb = diff_proc.get_time_embedding(t, hyperparams.TIME_EMB_DIM)
+            noise = torch.randn(hyperparams.BATCH_SIZE, hyperparams.BATCH_SIZE, hyperparams.IMG_SIZE,
+                                hyperparams.IMG_SIZE).to(self.device)
+            # xt, added_noise = diff_proc.forward_diffusion(images, t, sheduler)
+            with torch.cuda.amp.autocast():  # Включаем AMP
+                # guidance_prob = 0.15  # 15% примеров будут безусловными
+                # if random.random() < guidance_prob:
+                #     predicted_noise = model(xt, None, time_emb, None)  # Безусловное предсказание
+                # else:
+                #     predicted_noise = model(xt, text_embs, time_emb, attention_mask)  # Условное предсказание
+                e_adapt_added, e_adapt_pred = self.model(noise, images, text_embs, time_emb, attention_mask, t, sheduler)
+                loss_train = self.criterion(predicted_noise, added_noise)  # сравниваем с добавленным шумом
+            running_loss += loss_train.item()
+
+            scaler.scale(loss_train).backward()  # Масштабируем градиенты
+            scaler.step(optimizer)  # Делаем шаг оптимизатора
+            scaler.update()  # Обновляем скейлер
+
+            # loss_train.backward()
+
+            # optimizer.step()
+
+            ema.update()
+
+            i += 1
+            end_time = time.time()
+            print(
+                f"Процентов {(i / len(train_loader)) * 100}, {end_time - start_time}, loss: {loss_train.item():.4f}")
+
+            if i % log_interval == 0:
+                print(f"Batch: {i}, Current Train Loss: {loss_train.item():.4f}")
+
+        end_time_ep = time.time()
+        print(f'Трен. заверш. {end_time_ep - start_time_ep}')
+        return running_loss
+
+
+
+
+
+
 
 
 # Данные про датасет в одном месте. Решение в стиле простенького ООП

@@ -1,9 +1,9 @@
 from PyQt5.QtCore import QObject, pyqtSignal
 
+
 # import models.nn_model as neural
 # import models.dataset_creator as ld
 
-# TODO: Всё правильно и проверено
 
 class MainModel(QObject):
     signal_txt_save_status = pyqtSignal(str, str)
@@ -34,25 +34,3 @@ class MainModel(QObject):
         # device, model, optimizer, criterion = neural.create_model()
         # dataset = ld.create_dataset("datas/Flickr8k/Images/", "datas/Flickr8k/captions/captions.txt")
         # neural.train_ddpm(model, device, optimizer, criterion, dataset, 10)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

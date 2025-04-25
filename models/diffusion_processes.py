@@ -7,8 +7,8 @@ from tqdm import tqdm
 
 import models.hyperparams as hyperparams
 
-# TODO: Продолжить проверку и написание
 
+# TODO: Продолжить проверку и написание (проверить revers diffusion)
 class NoiseSheduler():
     def __init__(self, T, type, device):
         # Обычно bt возрастает, at убывает, at_bar убывает быстро

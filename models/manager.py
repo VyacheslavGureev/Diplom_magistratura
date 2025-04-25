@@ -55,9 +55,9 @@ class ModelManager():
     def create_model(self, unet_config_file, device):
         return encapsulated_data.EncapsulatedModel(unet_config_file, device)
 
-    def create_model_adapt(self, unet_config_file, adaptive_config_file, sheduler, device):
+    def create_model_adapt(self, unet_config_file, adaptive_config_file, device):
         e_model = encapsulated_data.EncapsulatedModelAdaptive(device)
-        e_model.setup(unet_config_file, adaptive_config_file, sheduler)
+        e_model.setup(unet_config_file, adaptive_config_file)
         return e_model
 
     def create_dataloaders(self, dataset, train_size_percent, val_size_percent):
@@ -81,6 +81,9 @@ class ModelManager():
         plateau_scheduler = lr_scheduler.ReduceLROnPlateau(e_model.optimizer, mode='min', factor=0.5, patience=2)
         early_stopping = EarlyStopping(patience=4)
         for epoch in range(epochs):
+            e_model.training_step(e_loader, sheduler)
+
+
             running_train_loss = self.training_model_adapt(e_model, e_loader, sheduler)
             # running_val_loss = self.validating_model(e_model, e_loader, sheduler)
             running_val_loss = 0
@@ -192,86 +195,86 @@ class ModelManager():
         print(f'Трен. заверш. {end_time_ep - start_time_ep}')
         return running_loss
 
-    def training_model_adapt(self, e_model,
-                             e_loader, sheduler):
-        print("Тренировка адапт")
-        model = e_model.model
-        adapt_model = e_model.adapt_model
-        device = e_model.device
-        optimizer = e_model.optimizer
-        criterion = e_model.criterion
-        train_loader = e_loader.train
-        text_descr_loader = e_loader.text_descr
-
-        model.train()  # Включаем режим обучения
-        adapt_model.eval()
-
-        running_loss = 0.0
-        log_interval = 50  # Выводим лосс каждые 50 батчей
-
-        i = 0
-        scaler = torch.cuda.amp.GradScaler()
-        start_time_ep = time.time()
-
-        all_outputs = []
-        with torch.no_grad():
-            for text_embs, attention_mask in text_descr_loader:
-                for _ in range(100):  # 100 разных шумов на один текст
-                    noise = torch.randn(hyperparams.BATCH_SIZE, hyperparams.BATCH_SIZE, hyperparams.IMG_SIZE,
-                                        hyperparams.IMG_SIZE)
-                    output = adapt_model(noise, text_embs, None, attention_mask)
-                    all_outputs.append(output.detach())
-        outputs_tensor = torch.cat(all_outputs, dim=0)
-        mu = outputs_tensor.mean()
-        D = outputs_tensor.std()
-        sheduler.update_coeffs(torch.full((hyperparams.T,), D, device=device))
-        adapt_model.train()
-        for images, text_embs, attention_mask in train_loader:
-            if hyperparams.OGRANICHITEL:
-                if i == hyperparams.N_OGRANICHITEL:
-                    print('Трен. заверш.')
-                    break
-            start_time = time.time()
-
-            images, text_embs, attention_mask = images.to(device), text_embs.to(device), attention_mask.to(device)
-
-            optimizer.zero_grad()
-
-            t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
-            time_emb = diff_proc.get_time_embedding(t, hyperparams.TIME_EMB_DIM)
-
-            xt, added_noise = diff_proc.forward_diffusion(images, t, sheduler)
-
-            with torch.cuda.amp.autocast():  # Включаем AMP
-                # guidance_prob = 0.15  # 15% примеров будут безусловными
-                # if random.random() < guidance_prob:
-                #     predicted_noise = model(xt, None, time_emb, None)  # Безусловное предсказание
-                # else:
-                #     predicted_noise = model(xt, text_embs, time_emb, attention_mask)  # Условное предсказание
-                predicted_noise = model(xt, text_embs, time_emb, attention_mask)
-                loss_train = criterion(predicted_noise, added_noise)  # сравниваем с добавленным шумом
-            running_loss += loss_train.item()
-
-            scaler.scale(loss_train).backward()  # Масштабируем градиенты
-            scaler.step(optimizer)  # Делаем шаг оптимизатора
-            scaler.update()  # Обновляем скейлер
-
-            # loss_train.backward()
-
-            # optimizer.step()
-
-            ema.update()
-
-            i += 1
-            end_time = time.time()
-            print(f"Процентов {(i / len(train_loader)) * 100}, {end_time - start_time}, loss: {loss_train.item():.4f}")
-
-            if i % log_interval == 0:
-                print(f"Batch: {i}, Current Train Loss: {loss_train.item():.4f}")
-
-        end_time_ep = time.time()
-        print(f'Трен. заверш. {end_time_ep - start_time_ep}')
-        return running_loss
+    # def training_model_adapt(self, e_model,
+    #                          e_loader, sheduler):
+    #     print("Тренировка адапт")
+    #     model = e_model.model
+    #     adapt_model = e_model.adapt_model
+    #     device = e_model.device
+    #     optimizer = e_model.optimizer
+    #     criterion = e_model.criterion
+    #     train_loader = e_loader.train
+    #     text_descr_loader = e_loader.text_descr
+    #
+    #     model.train()  # Включаем режим обучения
+    #     adapt_model.eval()
+    #
+    #     running_loss = 0.0
+    #     log_interval = 50  # Выводим лосс каждые 50 батчей
+    #
+    #     i = 0
+    #     scaler = torch.cuda.amp.GradScaler()
+    #     start_time_ep = time.time()
+    #
+    #     all_outputs = []
+    #     with torch.no_grad():
+    #         for text_embs, attention_mask in text_descr_loader:
+    #             for _ in range(100):  # 100 разных шумов на один текст
+    #                 noise = torch.randn(hyperparams.BATCH_SIZE, hyperparams.BATCH_SIZE, hyperparams.IMG_SIZE,
+    #                                     hyperparams.IMG_SIZE)
+    #                 output = adapt_model(noise, text_embs, None, attention_mask)
+    #                 all_outputs.append(output.detach())
+    #     outputs_tensor = torch.cat(all_outputs, dim=0)
+    #     mu = outputs_tensor.mean()
+    #     D = outputs_tensor.std()
+    #     sheduler.update_coeffs(torch.full((hyperparams.T,), D, device=device))
+    #     adapt_model.train()
+    #     for images, text_embs, attention_mask in train_loader:
+    #         if hyperparams.OGRANICHITEL:
+    #             if i == hyperparams.N_OGRANICHITEL:
+    #                 print('Трен. заверш.')
+    #                 break
+    #         start_time = time.time()
+    #
+    #         images, text_embs, attention_mask = images.to(device), text_embs.to(device), attention_mask.to(device)
+    #
+    #         optimizer.zero_grad()
+    #
+    #         t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
+    #         time_emb = diff_proc.get_time_embedding(t, hyperparams.TIME_EMB_DIM)
+    #
+    #         xt, added_noise = diff_proc.forward_diffusion(images, t, sheduler)
+    #
+    #         with torch.cuda.amp.autocast():  # Включаем AMP
+    #             # guidance_prob = 0.15  # 15% примеров будут безусловными
+    #             # if random.random() < guidance_prob:
+    #             #     predicted_noise = model(xt, None, time_emb, None)  # Безусловное предсказание
+    #             # else:
+    #             #     predicted_noise = model(xt, text_embs, time_emb, attention_mask)  # Условное предсказание
+    #             predicted_noise = model(xt, text_embs, time_emb, attention_mask)
+    #             loss_train = criterion(predicted_noise, added_noise)  # сравниваем с добавленным шумом
+    #         running_loss += loss_train.item()
+    #
+    #         scaler.scale(loss_train).backward()  # Масштабируем градиенты
+    #         scaler.step(optimizer)  # Делаем шаг оптимизатора
+    #         scaler.update()  # Обновляем скейлер
+    #
+    #         # loss_train.backward()
+    #
+    #         # optimizer.step()
+    #
+    #         ema.update()
+    #
+    #         i += 1
+    #         end_time = time.time()
+    #         print(f"Процентов {(i / len(train_loader)) * 100}, {end_time - start_time}, loss: {loss_train.item():.4f}")
+    #
+    #         if i % log_interval == 0:
+    #             print(f"Batch: {i}, Current Train Loss: {loss_train.item():.4f}")
+    #
+    #     end_time_ep = time.time()
+    #     print(f'Трен. заверш. {end_time_ep - start_time_ep}')
+    #     return running_loss
 
     def validating_model(self, e_model: encapsulated_data.EncapsulatedModel,
                          e_loader: encapsulated_data.EncapsulatedDataloaders, sheduler):

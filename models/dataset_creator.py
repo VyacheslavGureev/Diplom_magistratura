@@ -11,8 +11,8 @@ from torchvision import transforms, datasets
 import models.hyperparams as hyperparams
 import models.utils as utils
 
-# TODO: Предварительно всё правильно
 
+# TODO: Предварительно всё правильно
 # Формирование батчей для картинок, текстов и масок
 def collate_fn(batch):
     if len(batch) % hyperparams.BATCH_SIZE != 0:
@@ -23,6 +23,7 @@ def collate_fn(batch):
     text_embs = torch.stack(text_embs)  # Объединяем текстовые эмбеддинги (B, max_length, txt_emb_dim)
     masks = torch.stack(masks)  # Объединяем маски внимания (B, max_length)
     return images, text_embs, masks
+
 
 # Формирование батчей только для текстов и масок
 def collate_fn_text_dataset(batch):

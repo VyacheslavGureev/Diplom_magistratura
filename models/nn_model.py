@@ -3,8 +3,8 @@ import torch.nn as nn
 from torchviz import make_dot
 import models.hyperparams as HP
 
-# TODO: Всё правильно и проверено
 
+# TODO: Всё правильно и проверено
 class CrossAttentionMultiHead(nn.Module):
     def __init__(self, text_dim, img_dim, num_heads=4, dropout=0.1):
         super().__init__()
@@ -286,14 +286,16 @@ class MyUNet(nn.Module):
         bottleneck = self.config['BOTTLENECK']
         for bn in bottleneck:
             self.bottleneck.append(
-                self.create_bottleneck_block(bn['in_C'], bn['out_C'], self.txt_emb_dim, self.time_emb_dim, self.batch_size))
+                self.create_bottleneck_block(bn['in_C'], bn['out_C'], self.txt_emb_dim, self.time_emb_dim,
+                                             self.batch_size))
 
         self.up_blocks = nn.ModuleList()
         up_blocks = self.config['UP']
         for ub in up_blocks:
             self.up_blocks.append(SoftUpsample(ub['in_C'], ub['out_C']))
             self.up_blocks.append(
-                self.create_up_block(ub['out_C'] + ub['sc_C'], ub['out_C'] + ub['sc_C'], self.time_emb_dim, self.batch_size,
+                self.create_up_block(ub['out_C'] + ub['sc_C'], ub['out_C'] + ub['sc_C'], self.time_emb_dim,
+                                     self.batch_size,
                                      ub['SA']))
             if ub['CA']:
                 self.up_blocks.append(CrossAttentionMultiHead(self.txt_emb_dim, ub['out_C'] + ub['sc_C']))
@@ -311,7 +313,6 @@ class MyUNet(nn.Module):
         # self.final = nn.Sequential(
         #     nn.Conv2d(in_C_final // self.channels_div, self.orig_img_channels, kernel_size=3, padding=1, stride=1),
         # )  # В ddpm без финальной активации
-
 
         # in_C_final = self.config['UP'][-1]['out_C'] + self.config['UP'][-1]['sc_C']
         # out_C_final = in_C_final // 2
@@ -331,7 +332,7 @@ class MyUNet(nn.Module):
         out_C_final = (in_C_final // 2) - first_out_C
         self.up_final = SoftUpsample(in_C_final, out_C_final)
         in_C = (first_out_C + out_C_final)
-        out_C = in_C//2
+        out_C = in_C // 2
         self.single_conv_final = nn.Conv2d(in_C,
                                            out_C,
                                            kernel_size=3, padding=1,
@@ -396,7 +397,6 @@ class MyUNet(nn.Module):
         x = self.final(x)
         return x
 
-
 # # Адаптер-модель для визуализации
 # class WrappedModel(nn.Module):
 #     def __init__(self, model, text_emb, time_emb, attn_mask):
@@ -435,25 +435,23 @@ class MyUNet(nn.Module):
 #     # plt.pause(3600)
 
 
-
-    # # Переводим в numpy
-    # if isinstance(latent_vectors, torch.Tensor):
-    #     latent_vectors = latent_vectors.detach().cpu().numpy()
-    # if isinstance(labels, torch.Tensor):
-    #     labels = labels.cpu().numpy()
-    #
-    # # t-SNE
-    # tsne = TSNE(n_components=2, perplexity=perplexity, n_iter=n_iter, random_state=42)
-    # reduced = tsne.fit_transform(latent_vectors)
-    #
-    # # Визуализация
-    # plt.figure(figsize=(10, 8))
-    # sns.scatterplot(x=reduced[:, 0], y=reduced[:, 1], hue=labels, palette="tab10", s=60, alpha=0.8)
-    # plt.title("t-SNE visualization of latent space")
-    # plt.xlabel("Component 1")
-    # plt.ylabel("Component 2")
-    # plt.legend(title="Class")
-    # plt.grid(True)
-    # plt.tight_layout()
-    # plt.show()
-
+# # Переводим в numpy
+# if isinstance(latent_vectors, torch.Tensor):
+#     latent_vectors = latent_vectors.detach().cpu().numpy()
+# if isinstance(labels, torch.Tensor):
+#     labels = labels.cpu().numpy()
+#
+# # t-SNE
+# tsne = TSNE(n_components=2, perplexity=perplexity, n_iter=n_iter, random_state=42)
+# reduced = tsne.fit_transform(latent_vectors)
+#
+# # Визуализация
+# plt.figure(figsize=(10, 8))
+# sns.scatterplot(x=reduced[:, 0], y=reduced[:, 1], hue=labels, palette="tab10", s=60, alpha=0.8)
+# plt.title("t-SNE visualization of latent space")
+# plt.xlabel("Component 1")
+# plt.ylabel("Component 2")
+# plt.legend(title="Class")
+# plt.grid(True)
+# plt.tight_layout()
+# plt.show()
