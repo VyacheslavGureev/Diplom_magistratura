@@ -7,6 +7,7 @@ from tqdm import tqdm
 
 import models.hyperparams as hyperparams
 
+# TODO: Продолжить проверку и написание
 
 class NoiseSheduler():
     def __init__(self, T, type, device):
@@ -104,13 +105,13 @@ def forward_diffusion(x0: torch.Tensor, t: torch.Tensor, sheduler, noise=None):
     if noise is None:
         noise = torch.randn_like(x0, requires_grad=False, device=x0.device)
     at_bar = sheduler.a_bar[t][:, None, None, None]
-    # если кэфы правильно пересчитаны с дисперсией шума (любого), то замкнутая формула не меняется
+    # если кэфы правильно пересчитаны с дисперсией шума D (любого), то замкнутая формула не меняется
     xt = torch.sqrt(at_bar) * x0 + torch.sqrt(1 - at_bar) * noise
     return xt, noise
 
 
 # Функция для reverse diffusion
-def reverse_diffusion(model, text_embedding, attn_mask, sheduler: NoiseSheduler):
+def reverse_diffusion(model, text_embedding, attn_mask, sheduler):
     # Инициализация случайного шума (начало процесса)
     orig_channels = 1
     x_t = torch.randn(hyperparams.BATCH_SIZE, orig_channels, hyperparams.IMG_SIZE, hyperparams.IMG_SIZE,

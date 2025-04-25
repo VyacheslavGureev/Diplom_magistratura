@@ -11,7 +11,9 @@ from torchvision import transforms, datasets
 import models.hyperparams as hyperparams
 import models.utils as utils
 
+# TODO: Предварительно всё правильно
 
+# Формирование батчей для картинок, текстов и масок
 def collate_fn(batch):
     if len(batch) % hyperparams.BATCH_SIZE != 0:
         additional_batch = random.choices(batch, k=hyperparams.BATCH_SIZE - (len(batch) % hyperparams.BATCH_SIZE))
@@ -22,7 +24,7 @@ def collate_fn(batch):
     masks = torch.stack(masks)  # Объединяем маски внимания (B, max_length)
     return images, text_embs, masks
 
-
+# Формирование батчей только для текстов и масок
 def collate_fn_text_dataset(batch):
     if len(batch) % hyperparams.BATCH_SIZE != 0:
         additional_batch = random.choices(batch, k=hyperparams.BATCH_SIZE - (len(batch) % hyperparams.BATCH_SIZE))
@@ -83,7 +85,7 @@ class MNISTTextDataset(Dataset):
             # if random.random() < self.drop_conditioning_p:
             #     text_emb_reduced = torch.zeros_like(text_emb_reduced)  # Обнуляем текстовый эмбеддинг
             #     attention_mask = torch.zeros_like(attention_mask)
-        text_emb_reduced = F.normalize(text_emb_reduced, p=2, dim=-1)
+        # text_emb_reduced = F.normalize(text_emb_reduced, p=2, dim=-1)
         return image, text_emb_reduced, attention_mask
 
 
@@ -133,7 +135,6 @@ class MNISTTextDescriptDataset(Dataset):
 
 
 class ImageTextDataset(Dataset):
-
     def __init__(self, image_folder, captions_file, transform, tokenizer, text_encoder, max_len_tokens):
         with open(captions_file, "r") as f:
             lines = f.readlines()  # Загружаем подписи
@@ -216,7 +217,7 @@ def create_dataset_mnist(folder, train_flag):
     return dataset
 
 
-# --- Создание датасета для обучения ---
+# --- Создание датасета для текстов ---
 def create_dataset_mnist_text_descr():
     tokenizer = utils.load_data_from_file('datas/embedders/tokenizer.pkl')
     text_encoder = utils.load_data_from_file('datas/embedders/text_encoder.pkl')

@@ -275,6 +275,7 @@ def adaptive_ddpm():
                                             hyperparams.CURRENT_MODEL_CONFIG,
                                             hyperparams.CURRENT_MODEL_DIR +
                                             hyperparams.CURRENT_MODEL_CONFIG_ADAPT,
+                                            sheduler,
                                             device)
             model_manager.train_model(em, ed, hyperparams.EPOCHS, sheduler)
 

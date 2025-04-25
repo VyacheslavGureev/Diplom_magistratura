@@ -43,56 +43,7 @@ class EarlyStopping:
         return self.counter >= self.patience  # True = остановка
 
 
-# class DiffusionReverseProcess:
-#     r"""
-#
-#     Reverse Process class as described in the
-#     paper "Denoising Diffusion Probabilistic Models"
-#
-#     """
-#
-#     def __init__(self,
-#                  num_time_steps=1000,
-#                  beta_start=1e-4,
-#                  beta_end=0.02
-#                  ):
-#
-#         # Precomputing beta, alpha, and alpha_bar for all t's.
-#         self.b = torch.linspace(beta_start, beta_end, num_time_steps)  # b -> beta
-#         self.a = 1 - self.b  # a -> alpha
-#         self.a_bar = torch.cumprod(self.a, dim=0)  # a_bar = alpha_bar
-#
-#     def sample_prev_timestep(self, xt, noise_pred, t):
-#
-#         r""" Sample x_(t-1) given x_t and noise predicted
-#              by model.
-#
-#              :param xt: Image tensor at timestep t of shape -> B x C x H x W
-#              :param noise_pred: Noise Predicted by model of shape -> B x C x H x W
-#              :param t: Current time step
-#
-#         """
-#
-#         # Original Image Prediction at timestep t
-#         x0 = xt - (torch.sqrt(1 - self.a_bar.to(xt.device)[t]) * noise_pred)
-#         x0 = x0 / torch.sqrt(self.a_bar.to(xt.device)[t])
-#         x0 = torch.clamp(x0, -1., 1.)
-#
-#         # mean of x_(t-1)
-#         mean = (xt - ((1 - self.a.to(xt.device)[t]) * noise_pred) / (torch.sqrt(1 - self.a_bar.to(xt.device)[t])))
-#         mean = mean / (torch.sqrt(self.a.to(xt.device)[t]))
-#
-#         # only return mean
-#         if t == 0:
-#             return mean, x0
-#
-#         else:
-#             variance = (1 - self.a_bar.to(xt.device)[t - 1]) / (1 - self.a_bar.to(xt.device)[t])
-#             variance = variance * self.b.to(xt.device)[t]
-#             sigma = variance ** 0.5
-#             z = torch.randn(xt.shape).to(xt.device)
-#
-#             return mean + sigma * z, x0
+# TODO: Продолжить проверку и написание
 
 # Универсальный класс для главных взаимодействий с моделью
 class ModelManager():
@@ -104,8 +55,10 @@ class ModelManager():
     def create_model(self, unet_config_file, device):
         return encapsulated_data.EncapsulatedModel(unet_config_file, device)
 
-    def create_model_adapt(self, unet_config_file, adaptive_config_file, device):
-        return encapsulated_data.EncapsulatedModelAdaptive(unet_config_file, adaptive_config_file, device)
+    def create_model_adapt(self, unet_config_file, adaptive_config_file, sheduler, device):
+        e_model = encapsulated_data.EncapsulatedModelAdaptive(device)
+        e_model.setup(unet_config_file, adaptive_config_file, sheduler)
+        return e_model
 
     def create_dataloaders(self, dataset, train_size_percent, val_size_percent):
         # Разделяем датасеты
@@ -240,7 +193,7 @@ class ModelManager():
         return running_loss
 
     def training_model_adapt(self, e_model,
-                       e_loader, sheduler):
+                             e_loader, sheduler):
         print("Тренировка адапт")
         model = e_model.model
         adapt_model = e_model.adapt_model
@@ -264,7 +217,8 @@ class ModelManager():
         with torch.no_grad():
             for text_embs, attention_mask in text_descr_loader:
                 for _ in range(100):  # 100 разных шумов на один текст
-                    noise = torch.randn(hyperparams.BATCH_SIZE, hyperparams.BATCH_SIZE, hyperparams.IMG_SIZE, hyperparams.IMG_SIZE)
+                    noise = torch.randn(hyperparams.BATCH_SIZE, hyperparams.BATCH_SIZE, hyperparams.IMG_SIZE,
+                                        hyperparams.IMG_SIZE)
                     output = adapt_model(noise, text_embs, None, attention_mask)
                     all_outputs.append(output.detach())
         outputs_tensor = torch.cat(all_outputs, dim=0)
@@ -318,9 +272,6 @@ class ModelManager():
         end_time_ep = time.time()
         print(f'Трен. заверш. {end_time_ep - start_time_ep}')
         return running_loss
-
-
-
 
     def validating_model(self, e_model: encapsulated_data.EncapsulatedModel,
                          e_loader: encapsulated_data.EncapsulatedDataloaders, sheduler):

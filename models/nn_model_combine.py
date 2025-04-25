@@ -6,6 +6,7 @@ import models.diffusion_processes as diff_proc
 import models.hyperparams as hyperparams
 
 
+# TODO: Продолжить проверку и написание
 class MyCombineModel(nn.Module):
     def __init__(self, adapt_config, unet_config, sheduler):
         super().__init__()

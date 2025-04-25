@@ -3,6 +3,7 @@ import torch.nn as nn
 from torchviz import make_dot
 import models.hyperparams as HP
 
+# TODO: Всё правильно и проверено
 
 class CrossAttentionMultiHead(nn.Module):
     def __init__(self, text_dim, img_dim, num_heads=4, dropout=0.1):
@@ -396,42 +397,42 @@ class MyUNet(nn.Module):
         return x
 
 
-# Адаптер-модель для визуализации
-class WrappedModel(nn.Module):
-    def __init__(self, model, text_emb, time_emb, attn_mask):
-        super().__init__()
-        self.model = model
-        self.time_emb = time_emb
-        self.text_emb = text_emb
-        self.attn_mask = attn_mask
+# # Адаптер-модель для визуализации
+# class WrappedModel(nn.Module):
+#     def __init__(self, model, text_emb, time_emb, attn_mask):
+#         super().__init__()
+#         self.model = model
+#         self.time_emb = time_emb
+#         self.text_emb = text_emb
+#         self.attn_mask = attn_mask
+#
+#     def forward(self, x):
+#         return self.model(x, self.text_emb, self.time_emb, self.attn_mask)
 
-    def forward(self, x):
-        return self.model(x, self.text_emb, self.time_emb, self.attn_mask)
 
-
-from sklearn.manifold import TSNE
-import matplotlib.pyplot as plt
-import seaborn as sns
-import torch
-
-# Пример: latent_vectors — torch.Tensor [B, D], labels — torch.Tensor [B]
-def visualize_tsne(bottleneck_output):
-    latent = bottleneck_output  # размер [B, C, H, W]
-    B = latent.shape[0]
-    flattened_latent = latent.reshape(B, -1)  # → [B, C*H*W]
-
-    tsne = TSNE(n_components=2, perplexity=10, learning_rate=200, n_iter=1000)
-    latent_2d = tsne.fit_transform(flattened_latent.cpu().detach().numpy())
-
-    # labels — это ground truth метки для анализа кластеров
-    plt.figure(figsize=(8, 6))
-    plt.scatter(latent_2d[:, 0], latent_2d[:, 1], c='red', cmap='tab10', alpha=0.7)
-    plt.colorbar()
-    plt.title("t-SNE визуализация латентного пространства")
-    plt.savefig("trained/latent_dim/tsne_latent_dim_label_0.png", dpi=300)  # dpi — качество (точек на дюйм)
-    plt.close()
-    # plt.show()
-    # plt.pause(3600)
+# from sklearn.manifold import TSNE
+# import matplotlib.pyplot as plt
+# import seaborn as sns
+# import torch
+#
+# # Пример: latent_vectors — torch.Tensor [B, D], labels — torch.Tensor [B]
+# def visualize_tsne(bottleneck_output):
+#     latent = bottleneck_output  # размер [B, C, H, W]
+#     B = latent.shape[0]
+#     flattened_latent = latent.reshape(B, -1)  # → [B, C*H*W]
+#
+#     tsne = TSNE(n_components=2, perplexity=10, learning_rate=200, n_iter=1000)
+#     latent_2d = tsne.fit_transform(flattened_latent.cpu().detach().numpy())
+#
+#     # labels — это ground truth метки для анализа кластеров
+#     plt.figure(figsize=(8, 6))
+#     plt.scatter(latent_2d[:, 0], latent_2d[:, 1], c='red', cmap='tab10', alpha=0.7)
+#     plt.colorbar()
+#     plt.title("t-SNE визуализация латентного пространства")
+#     plt.savefig("trained/latent_dim/tsne_latent_dim_label_0.png", dpi=300)  # dpi — качество (точек на дюйм)
+#     plt.close()
+#     # plt.show()
+#     # plt.pause(3600)
 
 
 

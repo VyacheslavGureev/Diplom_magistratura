@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import models.hyperparams as HP
 
+# TODO: Предварительно всё правильно
 
 class CrossAttentionMultiHead(nn.Module):
     def __init__(self, text_dim, img_dim, num_heads=4, dropout=0.1):
