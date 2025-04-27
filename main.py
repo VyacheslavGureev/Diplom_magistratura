@@ -10,6 +10,8 @@ from torch.utils.data import random_split, DataLoader
 import pickle
 import os
 import torch
+import random
+import numpy as np
 from transformers import CLIPTokenizer, CLIPTextModel
 import models.nn_model as neural
 import models.dataset_creator as dc
@@ -20,6 +22,11 @@ import models.utils as utils
 import models.encapsulated_data as encapsulated_data
 
 # TODO: Продолжить проверку и написание
+
+
+
+
+
 
 def main():
     pass
@@ -172,18 +179,6 @@ def vanile_ddpm():
 
 
 def adaptive_ddpm():
-    # unet_config = {'TEXT_EMB_DIM' : hyperparams.TEXT_EMB_DIM, 'TIME_EMB_DIM' : hyperparams.TIME_EMB_DIM,
-    #                'BATCH_SIZE' : hyperparams.BATCH_SIZE, 'ORIG_C' : 1,
-    #                'DOWN':
-    #                    [{'in_C': 16, 'out_C': 32, 'SA': False},
-    #                     {'in_C': 32, 'out_C': 64, 'SA': True},
-    #                     {'in_C': 64, 'out_C': 128, 'SA': False}],
-    #                'BOTTLENECK': [{'in_C': 128, 'out_C': 128}],
-    #                'UP': [{'in_C': 128, 'out_C': 64, 'sc_C': 64, 'SA': False, 'CA': False},
-    #                       {'in_C': 64 + 64, 'out_C': 32, 'sc_C': 32, 'SA': True, 'CA': True}]}
-    # utils.save_json(unet_config, hyperparams.CURRENT_MODEL_DIR + hyperparams.CURRENT_MODEL_CONFIG)
-    # print('saved')
-
     # # Загружаем CLIP
     # tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
     # text_encoder = CLIPTextModel.from_pretrained("openai/clip-vit-base-patch32")
@@ -204,15 +199,23 @@ def adaptive_ddpm():
     #                         collate_fn=dc.collate_fn)
     # test_loader = DataLoader(tst_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=False,
     #                          collate_fn=dc.collate_fn)
-    # e_loader = encapsulated_data.EncapsulatedDataloaders(train_loader, val_loader, test_loader)
-    # utils.save_data_to_file(e_loader, 'trained/e_loader.pkl')
+    #
+    # dataset_text_descr = dc.create_dataset_mnist_text_descr()
+    # text_descr_loader = DataLoader(dataset_text_descr, batch_size=hyperparams.BATCH_SIZE, shuffle=True,
+    #                           collate_fn=dc.collate_fn_text_dataset)
+    # e_loader = encapsulated_data.EncapsulatedDataloadersTextDescr(train_loader, val_loader, test_loader, text_descr_loader)
+    # utils.save_data_to_file(e_loader, 'trained/e_loader_adapt.pkl')
     # print('test')
+
+
+
+
 
     shutdown_flag = False
     # mode = 'img'  #
-    mode = 'create_train_test_save'  #
+    # mode = 'create_train_test_save'  #
     # mode = 'load_train_test_save'  #
-    # mode = 'load_gen'  #
+    mode = 'load_gen'  #
     # mode = 'debug'  #
 
     # mode = 'create_train_save'  #
@@ -220,16 +223,17 @@ def adaptive_ddpm():
     # mode = 'load_gen'  #
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    utils.set_seed(42)  # Чтобы модели были стабильными и предсказуемыми, а эксперименты воспроизводимыми
     model_manager = manager.ModelManager()
     sheduler = diff_proc.NoiseShedulerAdapt(hyperparams.T, 'linear', device)
-    # sheduler = diff_proc.NoiseShedulerAdapt(3, 'linear', device)
-    # sheduler.update_coeffs(torch.full((3,), 2, device=device))
     if mode == 'load_gen':
-        em = model_manager.load_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR,
-                                                         hyperparams.CURRENT_MODEL_NAME,
-                                                         hyperparams.CURRENT_MODEL_DIR +
-                                                         hyperparams.CURRENT_MODEL_CONFIG,
-                                                         device)
+        em = model_manager.create_model_adapt(
+            hyperparams.CURRENT_MODEL_DIR +
+            hyperparams.CURRENT_MODEL_CONFIG,
+            hyperparams.CURRENT_MODEL_DIR +
+            hyperparams.CURRENT_MODEL_CONFIG_ADAPT,
+            device)
+        em.load_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR, hyperparams.CURRENT_MODEL_NAME)
         print('Загрузка завершена!')
         # text = "Это цифра ноль"
         # text = "Изображена единица"
@@ -250,7 +254,7 @@ def adaptive_ddpm():
         # with open("trained/e_loader.pkl", "wb") as f:
         #     pickle.dump(ed, f)
         # Загружаем объект из файла
-        ed = utils.load_data_from_file("trained/e_loader.pkl")
+        ed = utils.load_data_from_file("trained/e_loader_adapt.pkl")
         if mode == 1:
             pass
         # if mode == 'load_test':
@@ -278,30 +282,23 @@ def adaptive_ddpm():
                                             hyperparams.CURRENT_MODEL_CONFIG_ADAPT,
                                             device)
             model_manager.train_model(em, ed, hyperparams.EPOCHS, sheduler)
-
-            # model_manager.test_model(em, ed, sheduler)
+            em.testing_model(ed, sheduler)
             print('Тестирование завершено!')
-            model_manager.save_my_model_in_middle_train(em,
-                                                        hyperparams.CURRENT_MODEL_DIR,
-                                                        hyperparams.CURRENT_MODEL_NAME,
-                                                        hyperparams.CURRENT_MODEL_DIR +
-                                                        hyperparams.CURRENT_MODEL_CONFIG)
+            em.save_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR, hyperparams.CURRENT_MODEL_NAME)
             print('Готово! create_train_test_save')
         elif mode == 'load_train_test_save':
-            em = model_manager.load_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR,
-                                                             hyperparams.CURRENT_MODEL_NAME,
-                                                             hyperparams.CURRENT_MODEL_DIR +
-                                                             hyperparams.CURRENT_MODEL_CONFIG,
-                                                             device)
+            em = model_manager.create_model_adapt(
+                hyperparams.CURRENT_MODEL_DIR +
+                hyperparams.CURRENT_MODEL_CONFIG,
+                hyperparams.CURRENT_MODEL_DIR +
+                hyperparams.CURRENT_MODEL_CONFIG_ADAPT,
+                device)
+            em.load_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR, hyperparams.CURRENT_MODEL_NAME)
             print('Загрузка завершена!')
             model_manager.train_model(em, ed, hyperparams.EPOCHS, sheduler)
-            model_manager.test_model(em, ed, sheduler)
+            em.testing_model(ed, sheduler)
             print('Тестирование завершено!')
-            model_manager.save_my_model_in_middle_train(em,
-                                                        hyperparams.CURRENT_MODEL_DIR,
-                                                        hyperparams.CURRENT_MODEL_NAME,
-                                                        hyperparams.CURRENT_MODEL_DIR +
-                                                        hyperparams.CURRENT_MODEL_CONFIG)
+            em.save_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR, hyperparams.CURRENT_MODEL_NAME)
             print('Продолжение тренировки завершено!')
         elif mode == 'debug':
             # em = model_manager.create_model(device)

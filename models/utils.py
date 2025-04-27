@@ -1,6 +1,18 @@
+import torch
+import random
+import numpy as np
 import pickle
 import json
 import matplotlib.pyplot as plt
+
+
+def set_seed(seed=42):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.deterministic = True  # Детерминированные алгоритмы CuDNN
+    torch.backends.cudnn.benchmark = False  # Отключаем авто-тюнинг ядер
 
 
 def show_image(tensor_img):

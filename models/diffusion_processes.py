@@ -13,6 +13,7 @@ class NoiseSheduler():
     def __init__(self, T, type, device):
         # Обычно bt возрастает, at убывает, at_bar убывает быстро
         self.device = device
+        self.T = T
         if type == 'linear':
             # Максимально стандартное линейное расписание
             beta_start = 1e-4
@@ -63,13 +64,23 @@ class NoiseShedulerAdapt(NoiseSheduler):
     def __init__(self, T, type, device):
         super().__init__(T, type, device)
 
-    # D dim is (T,)
+    # D это скаляр
+    # Пока что такой пересчёт кэфов справедлив только для линейного расписания,
+    # в будущем возможно добавлю пересчёт и для для косинусового расписания
     def update_coeffs(self, D):
+        # D = torch.tensor(100)
         D = D.to(self.device)
+        b_max_old = torch.max(self.b)
+        b_min_old = torch.min(self.b)
+
+        b_max_new = (1/D) * 0.99
+        s = b_max_old/b_max_new
+        b_min_new = b_min_old / s
+
+        self.b = torch.linspace(b_min_new, b_max_new, self.T).to(self.device)
         self.a = 1 - self.b * D
-        # self.a = D * ((1 / D) - self.b)
         self.a_bar = torch.cumprod(self.a, dim=0)
-        # print('1')
+        self.a_bar = torch.clamp(self.a_bar, min=1e-30)
 
 
 def get_time_embedding(time_steps: torch.Tensor, t_emb_dim: int) -> torch.Tensor:

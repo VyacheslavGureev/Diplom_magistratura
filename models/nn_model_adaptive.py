@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
-import models.hyperparams as HP
+import time
+import models.hyperparams as hyperparams
+
 
 # TODO: Предварительно всё правильно
 
@@ -96,8 +98,11 @@ class ResNetBlock(nn.Module):
             self.norm_1 = nn.BatchNorm2d(num_features=in_channels)
             self.norm_2 = nn.BatchNorm2d(num_features=out_channels)
 
-        self.silu_1 = nn.SiLU()
-        self.silu_2 = nn.SiLU()
+        # self.silu_1 = nn.SiLU()
+        # self.silu_2 = nn.SiLU()
+
+        self.act_1 = nn.Tanh()
+        self.act_2 = nn.Tanh()
 
         self.dropout = nn.Dropout(p=0.1)  # 10% нейронов будут обнулены
 
@@ -105,13 +110,13 @@ class ResNetBlock(nn.Module):
         if time_emb != None:
             x = x + self.te_block(time_emb)[:, :, None, None]
         r = self.norm_1(x)
-        r = self.silu_1(r)
+        r = self.act_1(r)
         r = self.conv_1(r)
 
         r = self.dropout(r)
 
         r = self.norm_2(r)
-        r = self.silu_2(r)
+        r = self.act_2(r)
         r = self.conv_2(r)
         r = r + self.residual(x)
         return r
@@ -206,6 +211,8 @@ class MyAdaptUNet(nn.Module):
         self.final = nn.Sequential(
             nn.Conv2d(in_C, self.orig_img_channels, kernel_size=3, padding=1, stride=1),
         )
+        self.mu = 0  # среднее
+        self.D = 1  # дисперсия
 
     def create_down_block(self, in_channels, out_channels, time_emb_dim, batch_size, use_self_attn):
         if not use_self_attn:
@@ -225,58 +232,79 @@ class MyAdaptUNet(nn.Module):
         else:
             return ResNetBlock(in_channels, out_channels, time_emb_dim, batch_size)
 
-    def forward(self, x, text_emb, time_emb, attension_mask): # time_emb будет None
-        # применение FFT
+    def get_current_variance(self, text_descr_loader, device):
+        all_outputs = []
+        start_time_variance = time.time()
+        with torch.no_grad():
+            for text_embs, attention_mask in text_descr_loader:
+                start_time_noises = time.time()
+                for _ in range(100):  # 100 разных шумов на один текст
+                    text_embs, attention_mask = text_embs.to(device), attention_mask.to(device)
+                    noise = torch.randn(hyperparams.BATCH_SIZE, hyperparams.CHANNELS, hyperparams.IMG_SIZE,
+                                        hyperparams.IMG_SIZE).to(device)
+                    # with torch.cuda.amp.autocast():  # Включаем AMP (включение повышает дисперсию, а это плохо)
+                    output = self(noise, text_embs, None, attention_mask)
+                    all_outputs.append(output.detach())
+                print(f'Много шумов на один текст: {time.time() - start_time_noises}')
+        print(f'Замер дисперсии: {time.time() - start_time_variance}')
+        outputs_tensor = torch.cat(all_outputs, dim=0)
+        self.mu = outputs_tensor.mean()  # mu - это скаляр
+        self.D = outputs_tensor.std()  # D - это тоже скаляр
+        return self.mu, self.D
+
+    def forward(self, x, text_emb, time_emb, attension_mask):  # time_emb будет None
         if self.apply_fft:
+            # 1. Берем FFT
             x_fft = torch.fft.fft2(x)
-            # Отдельно обрабатываем мнимую и вещественные компоненты
-            x_real = x_fft.real  # Вещественная часть: [B, C, H, W], float32
-            x_imag = x_fft.imag  # Мнимая часть: [B, C, H, W], float32
-            x_data = [x_real, x_imag]
-        else:
-            x_data = [x]
+            amp = torch.sqrt(x_fft.real ** 2 + x_fft.imag ** 2 + 1e-8)
+            phase = torch.atan2(x_fft.imag, x_fft.real)
+            # x = amp
+            # x = torch.log(amp + 1e-8)  # стабилизация перед сетью
+            scale = (amp.amax(dim=[-2, -1], keepdim=True) + 1e-8)
+            amp = amp / scale  # Нормализация на максимум
+            x = amp
 
-        for j in range(len(x_data)):
-            x = x_data[j]
-            x = self.prepare(x)
-            skip_connections = []
-            for i in range(0, len(self.down_blocks), 2):
-                down = self.down_blocks[i]
-                x = down(x, time_emb)
-                skip_connections.append(x)
-                downsample = self.down_blocks[i + 1]
-                x = downsample(x)
+        # 2. Прогоняем только амплитуду через нейронку
 
-            for bn in self.bottleneck:
-                x = bn(x, text_emb, time_emb, attension_mask)
+        x = self.prepare(x)
+        skip_connections = []
+        for i in range(0, len(self.down_blocks), 2):
+            down = self.down_blocks[i]
+            x = down(x, time_emb)
+            skip_connections.append(x)
+            downsample = self.down_blocks[i + 1]
+            x = downsample(x)
 
-            i = 0
-            for decoder in self.up_blocks:
-                if isinstance(decoder, SoftUpsample):
-                    x = decoder(x)
-                    skip = skip_connections[-(i + 1)]
-                    x = torch.cat([x, skip], dim=1)  # Skip connection
-                    i += 1
-                # elif isinstance(decoder, ResNetBlock) or isinstance(decoder, ResNetMiddleBlock):
-                elif isinstance(decoder, ResNetBlock):
-                    x = decoder(x, time_emb)
-                elif isinstance(decoder, CrossAttentionMultiHead):
-                    x = decoder(x, text_emb, attension_mask)
+        for bn in self.bottleneck:
+            x = bn(x, text_emb, time_emb, attension_mask)
 
-            x = self.up_final(x)
-            skip = skip_connections[0]
-            x = torch.cat([x, skip], dim=1)
-            x = self.single_conv_final(x)
-            x = self.final(x)
-            x_data[j] = x
+        i = 0
+        for decoder in self.up_blocks:
+            if isinstance(decoder, SoftUpsample):
+                x = decoder(x)
+                skip = skip_connections[-(i + 1)]
+                x = torch.cat([x, skip], dim=1)  # Skip connection
+                i += 1
+            # elif isinstance(decoder, ResNetBlock) or isinstance(decoder, ResNetMiddleBlock):
+            elif isinstance(decoder, ResNetBlock):
+                x = decoder(x, time_emb)
+            elif isinstance(decoder, CrossAttentionMultiHead):
+                x = decoder(x, text_emb, attension_mask)
+
+        x = self.up_final(x)
+        skip = skip_connections[0]
+        x = torch.cat([x, skip], dim=1)
+        x = self.single_conv_final(x)
+        x = self.final(x)
 
         # применение IFFT
         if self.apply_fft:
-            x_fft_processed = torch.complex(x_data[0], x_data[1])
+            # 3. Восстанавливаем комплексный спектр
+            # x = torch.exp(x)  # обратная операция
+            x = x * scale
+            real_part = x * torch.cos(phase)
+            imag_part = x * torch.sin(phase)
+            x_fft_processed = torch.complex(real_part, imag_part)
+            # 4. IFFT
             x = torch.fft.ifft2(x_fft_processed).real
-        else:
-            x = x_data[0]
         return x
-
-
-

@@ -26,8 +26,8 @@ CURRENT_MODEL_NAME = '32p_mnist_adapt.pth'
 CURRENT_MODEL_DIR = 'trained/'
 
 # --- Гиперпараметры для дебага ---
-# OGRANICHITEL = True
-OGRANICHITEL = False
-N_OGRANICHITEL = 1550
+OGRANICHITEL = True
+# OGRANICHITEL = False
+N_OGRANICHITEL = 500
 
 # VIZ_STEP = True
