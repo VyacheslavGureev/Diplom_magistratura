@@ -233,6 +233,8 @@ class MyAdaptUNet(nn.Module):
             return ResNetBlock(in_channels, out_channels, time_emb_dim, batch_size)
 
     def get_current_variance(self, text_descr_loader, device):
+        was_training = self.training  # True если train(), False если eval()
+        self.eval()
         all_outputs = []
         start_time_variance = time.time()
         with torch.no_grad():
@@ -250,6 +252,11 @@ class MyAdaptUNet(nn.Module):
         outputs_tensor = torch.cat(all_outputs, dim=0)
         self.mu = outputs_tensor.mean()  # mu - это скаляр
         self.D = outputs_tensor.std()  # D - это тоже скаляр
+        print(f'D: {self.D}, mu: {self.mu}')
+        if was_training:
+            self.train()
+        else:
+            self.eval()
         return self.mu, self.D
 
     def forward(self, x, text_emb, time_emb, attension_mask):  # time_emb будет None

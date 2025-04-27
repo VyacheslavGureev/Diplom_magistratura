@@ -73,8 +73,8 @@ class NoiseShedulerAdapt(NoiseSheduler):
         b_max_old = torch.max(self.b)
         b_min_old = torch.min(self.b)
 
-        b_max_new = (1/D) * 0.99
-        s = b_max_old/b_max_new
+        b_max_new = (1 / D) * 0.99
+        s = b_max_old / b_max_new
         b_min_new = b_min_old / s
 
         self.b = torch.linspace(b_min_new, b_max_new, self.T).to(self.device)

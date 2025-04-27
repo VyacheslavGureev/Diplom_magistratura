@@ -1,10 +1,12 @@
 import math
 import copy
 import time
+import os
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from tqdm import tqdm
 
 import models.hyperparams as hyperparams
 import models.nn_model as nn_model
@@ -61,6 +63,11 @@ class ModelInOnePlace:
     # Вызываем после создания объекта и передаём аргументы, предназначенные именно для конкретного объекта
     def setup(self, *args, **kwargs):
         pass
+
+    def reverse_diffusion(self, text_embedding, attn_mask, sheduler, **kwargs):
+        raise NotImplementedError()
+
+
 
 
 class EncapsulatedModel(ModelInOnePlace):
@@ -135,14 +142,7 @@ class EncapsulatedModelAdaptive(ModelInOnePlace):
             {"params": cross_attn_params, "lr": hyperparams.LR}  # Уменьшенный LR для Cross-Attention
         ], weight_decay=1e-4)
         self.criterion = adapt_loss
-        # self.model.apply(self.init_weights_unit_var)
         self.model.apply(self.init_weights)
-
-    # def init_weights_unit_var(self, module):
-    #     if hasattr(module, 'weight') and module.weight is not None:
-    #         nn.init.normal_(module.weight, mean=0.0, std=1.0)
-    #     if hasattr(module, 'bias') and module.bias is not None:
-    #         nn.init.constant_(module.bias, 0.0)
 
     def init_weights(self, m):
         if isinstance(m, (nn.Conv2d, nn.Linear, nn.ConvTranspose2d)):
@@ -167,16 +167,14 @@ class EncapsulatedModelAdaptive(ModelInOnePlace):
         print("Тренировка адапт")
         train_loader = e_loader.train
         text_descr_loader = e_loader.text_descr
-        self.model.eval()  # Включаем режим валидации
         # for i in range(10):
         mu, D = self.model.adaptive_block.get_current_variance(text_descr_loader, self.device)
-        print(f'D: {D}, mu: {mu}')
         sheduler.update_coeffs(D)
-        self.model.train()
         running_loss = 0.0
         log_interval = 50  # Выводим лосс каждые 50 батчей
-        var_calc_interval = 100 # Пересчитываем дисперсию каждые 100 батчей
+        var_calc_interval = 100  # Пересчитываем дисперсию каждые 100 батчей
         i = 0
+        self.model.train()
         # scaler = torch.cuda.amp.GradScaler()
         start_time_epoch = time.time()
         for images, text_embs, attention_mask in train_loader:
@@ -212,13 +210,8 @@ class EncapsulatedModelAdaptive(ModelInOnePlace):
             if i % log_interval == 0:
                 print(f"Batch: {i}, Current Train Loss: {loss_train.item():.4f}")
             if i % var_calc_interval == 0:
-                self.model.eval()
                 mu, D = self.model.adaptive_block.get_current_variance(text_descr_loader, self.device)
-                print(f'D: {D}, mu: {mu}')
                 sheduler.update_coeffs(D)
-                self.model.train()
-
-
 
         print(f'Трен. заверш. {time.time() - start_time_epoch}')
         return running_loss
@@ -227,15 +220,13 @@ class EncapsulatedModelAdaptive(ModelInOnePlace):
         print("Валидация адапт")
         val_loader = e_loader.val
         text_descr_loader = e_loader.text_descr
-        self.model.eval()  # Включаем режим валидации
         running_loss = 0.0
         log_interval = 50  # Выводим лосс каждые 50 батчей
-        var_calc_interval = 100 # Пересчитываем дисперсию каждые 100 батчей
+        var_calc_interval = 100  # Пересчитываем дисперсию каждые 100 батчей
         i = 0
         mu, D = self.model.adaptive_block.get_current_variance(text_descr_loader, self.device)
-        print(f'D: {D}, mu: {mu}')
         sheduler.update_coeffs(D)
-        # sheduler.update_coeffs(torch.full((hyperparams.T,), D, device=self.device))
+        self.model.eval()  # Включаем режим валидации
         start_time_epoch = time.time()
         with torch.no_grad():
             for images, text_embs, attention_mask in val_loader:
@@ -252,10 +243,10 @@ class EncapsulatedModelAdaptive(ModelInOnePlace):
                                     hyperparams.IMG_SIZE).to(self.device)
                 # with torch.cuda.amp.autocast():  # Включаем AMP
                 e_adapt_added, e_adapt_pred = self.model(noise, images, text_embs, attention_mask, mu,
-                                                             sheduler)
+                                                         sheduler)
                 # так как отнимали от адаптивного шума mu, то в лоссе также используем mu = 0
                 loss_val = self.criterion(noise, e_adapt_added, e_adapt_pred, mu - mu,
-                                              D)
+                                          D)
                 running_loss += loss_val.item()
 
                 i += 1
@@ -265,11 +256,8 @@ class EncapsulatedModelAdaptive(ModelInOnePlace):
                 if i % log_interval == 0:
                     print(f"Batch: {i}, Current Val Loss: {loss_val.item():.4f}")
                 if i % var_calc_interval == 0:
-                    self.model.eval()
                     mu, D = self.model.adaptive_block.get_current_variance(text_descr_loader, self.device)
-                    print(f'D: {D}, mu: {mu}')
                     sheduler.update_coeffs(D)
-                    self.model.train()
 
         print(f'Вал. заверш. {time.time() - start_time_epoch}')
         return running_loss
@@ -278,15 +266,13 @@ class EncapsulatedModelAdaptive(ModelInOnePlace):
         print("Тестирование адапт")
         test_loader = e_loader.test
         text_descr_loader = e_loader.text_descr
-        self.model.eval()  # Включаем режим валидации
         running_loss = 0.0
         log_interval = 50  # Выводим лосс каждые 50 батчей
-        var_calc_interval = 100 # Пересчитываем дисперсию каждые 100 батчей
+        var_calc_interval = 100  # Пересчитываем дисперсию каждые 100 батчей
         i = 0
         mu, D = self.model.adaptive_block.get_current_variance(text_descr_loader, self.device)
-        print(f'D: {D}, mu: {mu}')
-        # sheduler.update_coeffs(torch.full((hyperparams.T,), D, device=self.device))
         sheduler.update_coeffs(D)
+        self.model.eval()  # Включаем режим валидации
         start_time_epoch = time.time()
         with torch.no_grad():
             for images, text_embs, attention_mask in test_loader:
@@ -306,7 +292,7 @@ class EncapsulatedModelAdaptive(ModelInOnePlace):
                                                          sheduler)
                 # так как отнимали от адаптивного шума mu, то в лоссе также используем mu = 0
                 loss_test = self.criterion(noise, e_adapt_added, e_adapt_pred, mu - mu,
-                                               D)
+                                           D)
                 running_loss += loss_test.item()
 
                 i += 1
@@ -316,11 +302,8 @@ class EncapsulatedModelAdaptive(ModelInOnePlace):
                 if i % log_interval == 0:
                     print(f"Batch: {i}, Current Test Loss: {loss_test.item():.4f}")
                 if i % var_calc_interval == 0:
-                    self.model.eval()
                     mu, D = self.model.adaptive_block.get_current_variance(text_descr_loader, self.device)
-                    print(f'D: {D}, mu: {mu}')
                     sheduler.update_coeffs(D)
-                    self.model.train()
 
         print(f'Тест. заверш. {time.time() - start_time_epoch}')
         print(f'Test Loss avg: {loss_test / len(test_loader):.4f}')
@@ -352,3 +335,52 @@ class EncapsulatedModelAdaptive(ModelInOnePlace):
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.history = checkpoint.get('history', {0: {'train_loss': math.inf,
                                                       'val_loss': math.inf}})  # Если модель была обучена, но во время её обучения ещё не был реализован функционал сохранения истории обучения
+
+    # TODO дописать и проверить функцию денойзинга и проверить работу обученной в воскресенье модели
+    # Функция для reverse diffusion
+    def reverse_diffusion(self, text_embedding, attn_mask, sheduler):
+        # Инициализация случайного шума (начало процесса)
+        self.model.eval()
+        mu, D = self.model.adaptive_block.get_current_variance(text_descr_loader, self.device)
+        print(f'D: {D}, mu: {mu}')
+        sheduler.update_coeffs(D)
+
+        x_t = torch.randn(hyperparams.BATCH_SIZE, hyperparams.CHANNELS, hyperparams.IMG_SIZE, hyperparams.IMG_SIZE,
+                          device=self.device)  # (B, C, H, W)
+        t_tensor = torch.arange(0, hyperparams.T, 1, dtype=torch.int, device=self.device)
+        t_tensor = t_tensor.unsqueeze(1)
+        t_tensor = t_tensor.expand(hyperparams.T, hyperparams.BATCH_SIZE)
+        output_dir = "trained/denoising/"
+        # Удаляем все файлы в папке
+        for file in os.listdir(output_dir):
+            file_path = os.path.join(output_dir, file)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+        # Запускаем процесс reverse diffusion
+        self.model.eval()
+        with torch.no_grad():
+            i = 0
+            for step in tqdm(range(hyperparams.T - 1, -1, -1), colour='white'):
+                time_embedding = diff_proc.get_time_embedding(t_tensor[step], hyperparams.TIME_EMB_DIM)
+                predicted_noise = self.model(x_t, text_embedding, time_embedding, attn_mask)
+                # guidance_scale = 0.5  # Усиление текстового сигнала
+                # predicted_noise_uncond = model(x_t, None, t_i, None) # Безусловное предсказание
+                # predicted_noise_cond = model(x_t, text_embedding, t_i, attn_mask)  # Условное предсказание
+                # predicted_noise = guidance_scale * predicted_noise_cond + (1 - guidance_scale) * predicted_noise_uncond
+                x_t = (1 / torch.sqrt(sheduler.a[step])) * (
+                        x_t - ((1 - sheduler.a[step]) / (torch.sqrt(1 - sheduler.a_bar[step]))) * predicted_noise)
+                # Можно добавить дополнительные шаги, такие как коррекция или уменьшение шума
+                # Например, можно добавить немного шума обратно с каждым шагом:
+                # if step > 0:  # Добавляем случайный шум на всех шагах, кроме последнего
+                #     noise = torch.randn_like(x_t, device=next(model.parameters()).device) * (1 - sheduler.a[step]).sqrt() * 0.1
+                #     x_t += noise
+                if i % 20 == 0:
+                    # hyperparams.VIZ_STEP = True
+                    vutils.save_image(x_t, f"trained/denoising/step_{step}.png", normalize=True)
+                i += 1
+        images = []
+        for step in sorted(os.listdir("trained/denoising"), key=lambda x: int(x.split("_")[1].split(".")[0]),
+                           reverse=True):
+            images.append(imageio.imread(os.path.join("trained/denoising", step)))
+        imageio.mimsave("trained/denoising/denoising_process.gif", images, duration=0.3)  # 0.3 секунды на кадр
+        return x_t
