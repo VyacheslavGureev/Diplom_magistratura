@@ -121,46 +121,46 @@ def forward_diffusion(x0: torch.Tensor, t: torch.Tensor, sheduler, noise=None):
     return xt, noise
 
 
-# Функция для reverse diffusion
-def reverse_diffusion(model, text_embedding, attn_mask, sheduler):
-    # Инициализация случайного шума (начало процесса)
-    orig_channels = 1
-    x_t = torch.randn(hyperparams.BATCH_SIZE, orig_channels, hyperparams.IMG_SIZE, hyperparams.IMG_SIZE,
-                      device=next(model.parameters()).device)  # (B, C, H, W)
-    t_tensor = torch.arange(0, hyperparams.T, 1, dtype=torch.int, device=next(model.parameters()).device)
-    t_tensor = t_tensor.unsqueeze(1)
-    t_tensor = t_tensor.expand(hyperparams.T, hyperparams.BATCH_SIZE)
-    output_dir = "trained/denoising/"
-    # Удаляем все файлы в папке
-    for file in os.listdir(output_dir):
-        file_path = os.path.join(output_dir, file)
-        if os.path.isfile(file_path):
-            os.remove(file_path)
-    # Запускаем процесс reverse diffusion
-    model.eval()
-    with torch.no_grad():
-        i = 0
-        for step in tqdm(range(hyperparams.T - 1, -1, -1), colour='white'):
-            time_embedding = get_time_embedding(t_tensor[step], hyperparams.TIME_EMB_DIM)
-            predicted_noise = model(x_t, text_embedding, time_embedding, attn_mask)
-            # guidance_scale = 0.5  # Усиление текстового сигнала
-            # predicted_noise_uncond = model(x_t, None, t_i, None) # Безусловное предсказание
-            # predicted_noise_cond = model(x_t, text_embedding, t_i, attn_mask)  # Условное предсказание
-            # predicted_noise = guidance_scale * predicted_noise_cond + (1 - guidance_scale) * predicted_noise_uncond
-            x_t = (1 / torch.sqrt(sheduler.a[step])) * (
-                    x_t - ((1 - sheduler.a[step]) / (torch.sqrt(1 - sheduler.a_bar[step]))) * predicted_noise)
-            # Можно добавить дополнительные шаги, такие как коррекция или уменьшение шума
-            # Например, можно добавить немного шума обратно с каждым шагом:
-            # if step > 0:  # Добавляем случайный шум на всех шагах, кроме последнего
-            #     noise = torch.randn_like(x_t, device=next(model.parameters()).device) * (1 - sheduler.a[step]).sqrt() * 0.1
-            #     x_t += noise
-            if i % 20 == 0:
-                # hyperparams.VIZ_STEP = True
-                vutils.save_image(x_t, f"trained/denoising/step_{step}.png", normalize=True)
-            i += 1
-    images = []
-    for step in sorted(os.listdir("trained/denoising"), key=lambda x: int(x.split("_")[1].split(".")[0]),
-                       reverse=True):
-        images.append(imageio.imread(os.path.join("trained/denoising", step)))
-    imageio.mimsave("trained/denoising/denoising_process.gif", images, duration=0.3)  # 0.3 секунды на кадр
-    return x_t
+# # Функция для reverse diffusion
+# def reverse_diffusion(model, text_embedding, attn_mask, sheduler):
+#     # Инициализация случайного шума (начало процесса)
+#     orig_channels = 1
+#     x_t = torch.randn(hyperparams.BATCH_SIZE, orig_channels, hyperparams.IMG_SIZE, hyperparams.IMG_SIZE,
+#                       device=next(model.parameters()).device)  # (B, C, H, W)
+#     t_tensor = torch.arange(0, hyperparams.T, 1, dtype=torch.int, device=next(model.parameters()).device)
+#     t_tensor = t_tensor.unsqueeze(1)
+#     t_tensor = t_tensor.expand(hyperparams.T, hyperparams.BATCH_SIZE)
+#     output_dir = "trained/denoising/"
+#     # Удаляем все файлы в папке
+#     for file in os.listdir(output_dir):
+#         file_path = os.path.join(output_dir, file)
+#         if os.path.isfile(file_path):
+#             os.remove(file_path)
+#     # Запускаем процесс reverse diffusion
+#     model.eval()
+#     with torch.no_grad():
+#         i = 0
+#         for step in tqdm(range(hyperparams.T - 1, -1, -1), colour='white'):
+#             time_embedding = get_time_embedding(t_tensor[step], hyperparams.TIME_EMB_DIM)
+#             predicted_noise = model(x_t, text_embedding, time_embedding, attn_mask)
+#             # guidance_scale = 0.5  # Усиление текстового сигнала
+#             # predicted_noise_uncond = model(x_t, None, t_i, None) # Безусловное предсказание
+#             # predicted_noise_cond = model(x_t, text_embedding, t_i, attn_mask)  # Условное предсказание
+#             # predicted_noise = guidance_scale * predicted_noise_cond + (1 - guidance_scale) * predicted_noise_uncond
+#             x_t = (1 / torch.sqrt(sheduler.a[step])) * (
+#                     x_t - ((1 - sheduler.a[step]) / (torch.sqrt(1 - sheduler.a_bar[step]))) * predicted_noise)
+#             # Можно добавить дополнительные шаги, такие как коррекция или уменьшение шума
+#             # Например, можно добавить немного шума обратно с каждым шагом:
+#             # if step > 0:  # Добавляем случайный шум на всех шагах, кроме последнего
+#             #     noise = torch.randn_like(x_t, device=next(model.parameters()).device) * (1 - sheduler.a[step]).sqrt() * 0.1
+#             #     x_t += noise
+#             if i % 20 == 0:
+#                 # hyperparams.VIZ_STEP = True
+#                 vutils.save_image(x_t, f"trained/denoising/step_{step}.png", normalize=True)
+#             i += 1
+#     images = []
+#     for step in sorted(os.listdir("trained/denoising"), key=lambda x: int(x.split("_")[1].split(".")[0]),
+#                        reverse=True):
+#         images.append(imageio.imread(os.path.join("trained/denoising", step)))
+#     imageio.mimsave("trained/denoising/denoising_process.gif", images, duration=0.3)  # 0.3 секунды на кадр
+#     return x_t

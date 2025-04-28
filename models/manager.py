@@ -20,7 +20,7 @@ import hiddenlayer as hl
 
 import models.hyperparams as hyperparams
 import models.dataset_creator as dc
-import models.encapsulated_data as encapsulated_data
+import models.model_adaptive as encapsulated_data
 import models.nn_model as nn_model
 import models.diffusion_processes as diff_proc
 import models.utils as utils
@@ -316,18 +316,18 @@ class ModelManager():
     #     ema.ema_model.load_state_dict(checkpoint['ema'])  # Загружаем EMA-веса
     #     return e_model
 
-    def get_img_from_text(self, e_model: encapsulated_data.EncapsulatedModel, text, sheduler):
-        text_embs, masks = dc.get_text_emb(text)
-        model = e_model.model
-        # ema = e_model.ema
-        # Повторяем тензоры, чтобы размерность по батчам совпадала
-        text_emb_batch = text_embs.unsqueeze(0).expand(hyperparams.BATCH_SIZE, -1, -1)  # (B, tokens, text_emb_dim)
-        mask_batch = masks.unsqueeze(0).expand(hyperparams.BATCH_SIZE, -1)  # (B, tokens)
-
-        mask_batch = mask_batch.to(next(model.parameters()).device)
-        text_emb_batch = text_emb_batch.to(next(model.parameters()).device)
-        img = diff_proc.reverse_diffusion(model, text_emb_batch, mask_batch, sheduler)
-        return img
+    # def get_img_from_text(self, e_model: encapsulated_data.EncapsulatedModel, text, sheduler):
+    #     text_embs, masks = dc.get_text_emb(text)
+    #     model = e_model.model
+    #     # ema = e_model.ema
+    #     # Повторяем тензоры, чтобы размерность по батчам совпадала
+    #     text_emb_batch = text_embs.unsqueeze(0).expand(hyperparams.BATCH_SIZE, -1, -1)  # (B, tokens, text_emb_dim)
+    #     mask_batch = masks.unsqueeze(0).expand(hyperparams.BATCH_SIZE, -1)  # (B, tokens)
+    #
+    #     mask_batch = mask_batch.to(next(model.parameters()).device)
+    #     text_emb_batch = text_emb_batch.to(next(model.parameters()).device)
+    #     img = diff_proc.reverse_diffusion(model, text_emb_batch, mask_batch, sheduler)
+    #     return img
 
     def viz_my_model(self, e_model):
         pass

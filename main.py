@@ -19,13 +19,10 @@ import models.hyperparams as hyperparams
 import models.manager as manager
 import models.diffusion_processes as diff_proc
 import models.utils as utils
-import models.encapsulated_data as encapsulated_data
+import models.model_adaptive as encapsulated_data
+
 
 # TODO: Продолжить проверку и написание
-
-
-
-
 
 
 def main():
@@ -207,10 +204,6 @@ def adaptive_ddpm():
     # utils.save_data_to_file(e_loader, 'trained/e_loader_adapt.pkl')
     # print('test')
 
-
-
-
-
     shutdown_flag = False
     # mode = 'img'  #
     # mode = 'create_train_test_save'  #
@@ -226,6 +219,7 @@ def adaptive_ddpm():
     utils.set_seed(42)  # Чтобы модели были стабильными и предсказуемыми, а эксперименты воспроизводимыми
     model_manager = manager.ModelManager()
     sheduler = diff_proc.NoiseShedulerAdapt(hyperparams.T, 'linear', device)
+    ed = utils.load_data_from_file("trained/e_loader_adapt.pkl")
     if mode == 'load_gen':
         em = model_manager.create_model_adapt(
             hyperparams.CURRENT_MODEL_DIR +
@@ -245,7 +239,9 @@ def adaptive_ddpm():
         # text = "На изображении семерка"
         # text = "Нарисована цифра восемь"
         # text = "Рукописная девятка"
-        i = model_manager.get_img_from_text(em, text, sheduler)
+        i = em.get_img_from_text(text, sheduler, ed=ed)
+
+        # i = model_manager.get_img_from_text(em, text, sheduler)
         # utils.show_image(i[1])
     else:
         # dataset = dc.create_dataset("datas/Flickr8k/Images/", "datas/Flickr8k/captions/captions.txt")
@@ -254,7 +250,7 @@ def adaptive_ddpm():
         # with open("trained/e_loader.pkl", "wb") as f:
         #     pickle.dump(ed, f)
         # Загружаем объект из файла
-        ed = utils.load_data_from_file("trained/e_loader_adapt.pkl")
+        # ed = utils.load_data_from_file("trained/e_loader_adapt.pkl")
         if mode == 1:
             pass
         # if mode == 'load_test':
@@ -276,11 +272,11 @@ def adaptive_ddpm():
         #     print('Готово!')
         elif mode == 'create_train_test_save':
             em = model_manager.create_model_adapt(
-                                            hyperparams.CURRENT_MODEL_DIR +
-                                            hyperparams.CURRENT_MODEL_CONFIG,
-                                            hyperparams.CURRENT_MODEL_DIR +
-                                            hyperparams.CURRENT_MODEL_CONFIG_ADAPT,
-                                            device)
+                hyperparams.CURRENT_MODEL_DIR +
+                hyperparams.CURRENT_MODEL_CONFIG,
+                hyperparams.CURRENT_MODEL_DIR +
+                hyperparams.CURRENT_MODEL_CONFIG_ADAPT,
+                device)
             model_manager.train_model(em, ed, hyperparams.EPOCHS, sheduler)
             em.testing_model(ed, sheduler)
             print('Тестирование завершено!')
