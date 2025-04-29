@@ -26,6 +26,9 @@ def show_image(tensor_img):
     plt.pause(3600)
 
 
+
+
+
 def load_data_from_file(filepath):
     with open(filepath, "rb") as f:
         obj = pickle.load(f)

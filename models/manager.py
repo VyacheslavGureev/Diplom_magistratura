@@ -52,29 +52,35 @@ class ModelManager():
         pass
 
     # --- Создание модели ---
-    def create_model(self, unet_config_file, device):
-        return encapsulated_data.EncapsulatedModel(unet_config_file, device)
+    # def create_model(self, unet_config_file, device):
+    #     e_model = encapsulated_data.EncapsulatedModel(device)
+    #     e_model.setup(unet_config_file, adaptive_config_file)
+    #     return e_model
+    #
+    #
+    #
+    #     return encapsulated_data.EncapsulatedModel(unet_config_file, device)
+    #
+    # def create_model_adapt(self, unet_config_file, adaptive_config_file, device):
+    #     e_model = encapsulated_data.EncapsulatedModelAdaptive(device)
+    #     e_model.setup(unet_config_file, adaptive_config_file)
+    #     return e_model
 
-    def create_model_adapt(self, unet_config_file, adaptive_config_file, device):
-        e_model = encapsulated_data.EncapsulatedModelAdaptive(device)
-        e_model.setup(unet_config_file, adaptive_config_file)
-        return e_model
-
-    def create_dataloaders(self, dataset, train_size_percent, val_size_percent):
-        # Разделяем датасеты
-        train_size = int(train_size_percent * len(dataset))
-        val_size = int(val_size_percent * len(dataset))
-        test_size = len(dataset) - train_size - val_size
-        train_dataset, val_dataset, test_dataset = random_split(dataset,
-                                                                [train_size, val_size, test_size])
-        train_loader = DataLoader(train_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=True,
-                                  collate_fn=dc.collate_fn)
-        val_loader = DataLoader(val_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=False,
-                                collate_fn=dc.collate_fn)
-        test_loader = DataLoader(test_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=False,
-                                 collate_fn=dc.collate_fn)  # Тестовый датасет можно не перемешивать
-        e_loader = encapsulated_data.EncapsulatedDataloaders(train_loader, val_loader, test_loader)
-        return e_loader
+    # def create_dataloaders(self, dataset, train_size_percent, val_size_percent):
+    #     # Разделяем датасеты
+    #     train_size = int(train_size_percent * len(dataset))
+    #     val_size = int(val_size_percent * len(dataset))
+    #     test_size = len(dataset) - train_size - val_size
+    #     train_dataset, val_dataset, test_dataset = random_split(dataset,
+    #                                                             [train_size, val_size, test_size])
+    #     train_loader = DataLoader(train_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=True,
+    #                               collate_fn=dc.collate_fn)
+    #     val_loader = DataLoader(val_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=False,
+    #                             collate_fn=dc.collate_fn)
+    #     test_loader = DataLoader(test_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=False,
+    #                              collate_fn=dc.collate_fn)  # Тестовый датасет можно не перемешивать
+    #     e_loader = encapsulated_data.EncapsulatedDataloaders(train_loader, val_loader, test_loader)
+    #     return e_loader
 
     def train_model(self, e_model,
                     e_loader, epochs, sheduler):

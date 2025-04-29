@@ -243,3 +243,13 @@ def get_text_emb(text):
     with torch.no_grad():
         text_emb_reduced = text_encoder(**tokens).last_hidden_state.squeeze(0)  # (max_length, txt_emb_dim)
     return text_emb_reduced, attention_mask
+
+
+
+
+
+
+
+
+
+

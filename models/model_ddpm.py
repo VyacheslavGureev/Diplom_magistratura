@@ -30,6 +30,14 @@ class ModelInOnePlace:
         print(self.device)
         self.history = {0: {'train_loss': math.inf, 'val_loss': math.inf}}
 
+    @classmethod
+    def from_config(cls, config):
+        raise NotImplementedError
+
+    # @classmethod
+    def setup_from_config(self, config):
+        raise NotImplementedError
+
     # Кастомный метод инициализации (переопределяем в классах-наследниках)
     # Вызываем после создания объекта и передаём аргументы, предназначенные именно для конкретного объекта
     def setup(self, *args, **kwargs):
@@ -59,6 +67,14 @@ class ModelInOnePlace:
 
 
 class EncapsulatedModel(ModelInOnePlace):
+
+    @classmethod
+    def from_config(cls, config):
+        return cls(device=config["device"])
+
+    def setup_from_config(self, config):
+        return self.setup(unet_config_file=config["unet_config_file"])
+
     def setup(self, unet_config_file):
         unet_config = utils.load_json(unet_config_file)
         self.unet_config = unet_config

@@ -20,10 +20,11 @@ EPOCHS = 1
 # CURRENT_MODEL_NAME = '32p_mnist.pth'
 # CURRENT_MODEL_DIR = 'trained/'
 
-CURRENT_MODEL_CONFIG_ADAPT = '32p_mnist_config_adapt.json'
-CURRENT_MODEL_CONFIG = '32p_mnist_config.json'
-CURRENT_MODEL_NAME = '32p_mnist_adapt.pth'
 CURRENT_MODEL_DIR = 'trained/'
+CURRENT_MODEL_NAME = '32p_mnist.pth'
+CURRENT_MODEL_NAME_ADAPT = '32p_mnist_adapt.pth'
+CURRENT_MODEL_CONFIG = '32p_mnist_config.json'
+CURRENT_MODEL_CONFIG_ADAPT = '32p_mnist_config_adapt.json'
 
 # --- Гиперпараметры для дебага ---
 OGRANICHITEL = True

@@ -53,6 +53,15 @@ def adapt_loss(e, e_a, e_a_pred, mu, D, mse=torch.nn.MSELoss()):
 
 
 class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
+
+    @classmethod
+    def from_config(cls, config):
+        return cls(device=config["device"])
+
+    # @classmethod
+    def setup_from_config(self, config):
+        return self.setup(unet_config_file=config["unet_config_file"], adaptive_config_file=config["adaptive_config_file"])
+
     def setup(self, unet_config_file, adaptive_config_file):
         adaptive_config = utils.load_json(adaptive_config_file)
         unet_config = utils.load_json(unet_config_file)
