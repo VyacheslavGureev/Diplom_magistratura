@@ -58,9 +58,9 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
     def from_config(cls, config):
         return cls(device=config["device"])
 
-    # @classmethod
     def setup_from_config(self, config):
-        return self.setup(unet_config_file=config["unet_config_file"], adaptive_config_file=config["adaptive_config_file"])
+        return self.setup(unet_config_file=config["unet_config_file"],
+                          adaptive_config_file=config["adaptive_config_file"])
 
     def setup(self, unet_config_file, adaptive_config_file):
         adaptive_config = utils.load_json(adaptive_config_file)
@@ -83,6 +83,7 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
         self.criterion = adapt_loss
         self.model.apply(self.init_weights)
 
+    # TODO: поменять функции активации здесь и в модели на softplus
     def init_weights(self, m):
         if isinstance(m, (nn.Conv2d, nn.Linear, nn.ConvTranspose2d)):
             nn.init.xavier_uniform_(m.weight, gain=nn.init.calculate_gain('tanh'))

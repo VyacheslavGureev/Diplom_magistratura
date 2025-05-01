@@ -34,7 +34,6 @@ class ModelInOnePlace:
     def from_config(cls, config):
         raise NotImplementedError
 
-    # @classmethod
     def setup_from_config(self, config):
         raise NotImplementedError
 
@@ -94,24 +93,24 @@ class EncapsulatedModel(ModelInOnePlace):
         ], weight_decay=1e-4)
         # можно ещё добавлять KL-loss (как в оригинале ddpm, но её можно опустить) или VLB-loss
         self.criterion = nn.MSELoss()
-        self.model.apply(self.init_weights)
+        # self.model.apply(self.init_weights)
 
-    def init_weights(self, m):
-        if isinstance(m, (nn.Conv2d, nn.Linear, nn.ConvTranspose2d)):
-            nn.init.xavier_uniform_(m.weight, gain=nn.init.calculate_gain('tanh'))
-        else:
-            try:
-                if hasattr(m, 'weight') and m.weight is not None:
-                    nn.init.xavier_uniform_(m.weight, gain=nn.init.calculate_gain('tanh'))
-            except:
-                pass
-        if hasattr(m, 'bias') and m.bias is not None:
-            nn.init.constant_(m.bias, 0.0)
-        if isinstance(m, (nn.BatchNorm2d, nn.LayerNorm, nn.GroupNorm)):
-            if m.weight is not None:
-                nn.init.constant_(m.weight, 1.0)
-            if m.bias is not None:
-                nn.init.constant_(m.bias, 0.0)
+    # def init_weights(self, m):
+    #     if isinstance(m, (nn.Conv2d, nn.Linear, nn.ConvTranspose2d)):
+    #         nn.init.xavier_uniform_(m.weight, gain=nn.init.calculate_gain('tanh'))
+    #     else:
+    #         try:
+    #             if hasattr(m, 'weight') and m.weight is not None:
+    #                 nn.init.xavier_uniform_(m.weight, gain=nn.init.calculate_gain('tanh'))
+    #         except:
+    #             pass
+    #     if hasattr(m, 'bias') and m.bias is not None:
+    #         nn.init.constant_(m.bias, 0.0)
+    #     if isinstance(m, (nn.BatchNorm2d, nn.LayerNorm, nn.GroupNorm)):
+    #         if m.weight is not None:
+    #             nn.init.constant_(m.weight, 1.0)
+    #         if m.bias is not None:
+    #             nn.init.constant_(m.bias, 0.0)
 
     def training_model(self, e_loader, sheduler):
         print("Тренировка")

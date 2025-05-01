@@ -27,8 +27,8 @@ CURRENT_MODEL_CONFIG = '32p_mnist_config.json'
 CURRENT_MODEL_CONFIG_ADAPT = '32p_mnist_config_adapt.json'
 
 # --- Гиперпараметры для дебага ---
-OGRANICHITEL = True
-# OGRANICHITEL = False
+# OGRANICHITEL = True
+OGRANICHITEL = False
 N_OGRANICHITEL = 500
 
 # VIZ_STEP = True

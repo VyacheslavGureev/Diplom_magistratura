@@ -6,34 +6,36 @@ from transformers import CLIPTokenizer, CLIPTextModel
 from sklearn.decomposition import PCA, TruncatedSVD
 import os
 from PIL import Image
+from torch.utils.data import random_split, DataLoader
 
 from torchvision import transforms, datasets
 import models.hyperparams as hyperparams
 import models.utils as utils
+import models.encapsulated_data as encapsulated_data
 
 
 # TODO: Предварительно всё правильно
-# Формирование батчей для картинок, текстов и масок
-def collate_fn(batch):
-    if len(batch) % hyperparams.BATCH_SIZE != 0:
-        additional_batch = random.choices(batch, k=hyperparams.BATCH_SIZE - (len(batch) % hyperparams.BATCH_SIZE))
-        batch = batch + additional_batch
-    images, text_embs, masks = zip(*batch)  # Разбираем батч по частям
-    images = torch.stack(images)  # Объединяем картинки (B, C, H, W)
-    text_embs = torch.stack(text_embs)  # Объединяем текстовые эмбеддинги (B, max_length, txt_emb_dim)
-    masks = torch.stack(masks)  # Объединяем маски внимания (B, max_length)
-    return images, text_embs, masks
+# # Формирование батчей для картинок, текстов и масок
+# def collate_fn(batch):
+#     if len(batch) % hyperparams.BATCH_SIZE != 0:
+#         additional_batch = random.choices(batch, k=hyperparams.BATCH_SIZE - (len(batch) % hyperparams.BATCH_SIZE))
+#         batch = batch + additional_batch
+#     images, text_embs, masks = zip(*batch)  # Разбираем батч по частям
+#     images = torch.stack(images)  # Объединяем картинки (B, C, H, W)
+#     text_embs = torch.stack(text_embs)  # Объединяем текстовые эмбеддинги (B, max_length, txt_emb_dim)
+#     masks = torch.stack(masks)  # Объединяем маски внимания (B, max_length)
+#     return images, text_embs, masks
 
 
-# Формирование батчей только для текстов и масок
-def collate_fn_text_dataset(batch):
-    if len(batch) % hyperparams.BATCH_SIZE != 0:
-        additional_batch = random.choices(batch, k=hyperparams.BATCH_SIZE - (len(batch) % hyperparams.BATCH_SIZE))
-        batch = batch + additional_batch
-    text_embs, masks = zip(*batch)  # Разбираем батч по частям
-    text_embs = torch.stack(text_embs)  # Объединяем текстовые эмбеддинги (B, max_length, txt_emb_dim)
-    masks = torch.stack(masks)  # Объединяем маски внимания (B, max_length)
-    return text_embs, masks
+# # Формирование батчей только для текстов и масок
+# def collate_fn_text_dataset(batch):
+#     if len(batch) % hyperparams.BATCH_SIZE != 0:
+#         additional_batch = random.choices(batch, k=hyperparams.BATCH_SIZE - (len(batch) % hyperparams.BATCH_SIZE))
+#         batch = batch + additional_batch
+#     text_embs, masks = zip(*batch)  # Разбираем батч по частям
+#     text_embs = torch.stack(text_embs)  # Объединяем текстовые эмбеддинги (B, max_length, txt_emb_dim)
+#     masks = torch.stack(masks)  # Объединяем маски внимания (B, max_length)
+#     return text_embs, masks
 
 
 class MNISTTextDataset(Dataset):
@@ -180,53 +182,53 @@ class ImageTextDataset(Dataset):
         return image, text_emb_reduced, attention_mask
 
 
-# --- Создание датасета для обучения ---
-def create_dataset(image_folder, captions_file):
-    transform = transforms.Compose([
-        transforms.Resize((hyperparams.IMG_SIZE, hyperparams.IMG_SIZE)),  # Приводим к IMG_SIZExIMG_SIZE
-        transforms.ToTensor(),  # Переводим в тензор (C, H, W)
-        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # Нормализация
-    ])
-    tokenizer = utils.load_data_from_file('datas/embedders/tokenizer.pkl')
-    text_encoder = utils.load_data_from_file('datas/embedders/text_encoder.pkl')
-    dataset = ImageTextDataset(
-        image_folder=image_folder,
-        captions_file=captions_file,
-        transform=transform,
-        tokenizer=tokenizer,
-        text_encoder=text_encoder,
-        max_len_tokens=hyperparams.MAX_LEN_TOKENS
-    )
-    return dataset
+# # --- Создание датасета для обучения со сложными картинками ---
+# def create_dataset(image_folder, captions_file):
+#     transform = transforms.Compose([
+#         transforms.Resize((hyperparams.IMG_SIZE, hyperparams.IMG_SIZE)),  # Приводим к IMG_SIZExIMG_SIZE
+#         transforms.ToTensor(),  # Переводим в тензор (C, H, W)
+#         transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # Нормализация
+#     ])
+#     tokenizer = utils.load_data_from_file('datas/embedders/tokenizer.pkl')
+#     text_encoder = utils.load_data_from_file('datas/embedders/text_encoder.pkl')
+#     dataset = ImageTextDataset(
+#         image_folder=image_folder,
+#         captions_file=captions_file,
+#         transform=transform,
+#         tokenizer=tokenizer,
+#         text_encoder=text_encoder,
+#         max_len_tokens=hyperparams.MAX_LEN_TOKENS
+#     )
+#     return dataset
 
 
-# --- Создание датасета для обучения ---
-def create_dataset_mnist(folder, train_flag):
-    transform = transforms.Compose([
-        transforms.Resize((hyperparams.IMG_SIZE, hyperparams.IMG_SIZE)),  # Приводим к IMG_SIZExIMG_SIZE
-        transforms.ToTensor(),  # Переводим в тензор (C, H, W)
-        transforms.Normalize(mean=[0.5], std=[0.5])  # Нормализация (один канал)
-    ])
-    tokenizer = utils.load_data_from_file('datas/embedders/tokenizer.pkl')
-    text_encoder = utils.load_data_from_file('datas/embedders/text_encoder.pkl')
-    dataset = MNISTTextDataset(root=folder,
-                               train=train_flag,
-                               transform=transform,
-                               tokenizer=tokenizer,
-                               text_encoder=text_encoder,
-                               max_len_tokens=hyperparams.MAX_LEN_TOKENS)
-    return dataset
+# # --- Создание датасета для обучения ---
+# def create_dataset_mnist(folder, train_flag):
+#     transform = transforms.Compose([
+#         transforms.Resize((hyperparams.IMG_SIZE, hyperparams.IMG_SIZE)),  # Приводим к IMG_SIZExIMG_SIZE
+#         transforms.ToTensor(),  # Переводим в тензор (C, H, W)
+#         transforms.Normalize(mean=[0.5], std=[0.5])  # Нормализация (один канал)
+#     ])
+#     tokenizer = utils.load_data_from_file('datas/embedders/tokenizer.pkl')
+#     text_encoder = utils.load_data_from_file('datas/embedders/text_encoder.pkl')
+#     dataset = MNISTTextDataset(root=folder,
+#                                train=train_flag,
+#                                transform=transform,
+#                                tokenizer=tokenizer,
+#                                text_encoder=text_encoder,
+#                                max_len_tokens=hyperparams.MAX_LEN_TOKENS)
+#     return dataset
 
 
-# --- Создание датасета для текстов ---
-def create_dataset_mnist_text_descr():
-    tokenizer = utils.load_data_from_file('datas/embedders/tokenizer.pkl')
-    text_encoder = utils.load_data_from_file('datas/embedders/text_encoder.pkl')
-    dataset = MNISTTextDescriptDataset(
-        tokenizer=tokenizer,
-        text_encoder=text_encoder,
-        max_len_tokens=hyperparams.MAX_LEN_TOKENS)
-    return dataset
+# # --- Создание датасета для текстов ---
+# def create_dataset_mnist_text_descr():
+#     tokenizer = utils.load_data_from_file('datas/embedders/tokenizer.pkl')
+#     text_encoder = utils.load_data_from_file('datas/embedders/text_encoder.pkl')
+#     dataset = MNISTTextDescriptDataset(
+#         tokenizer=tokenizer,
+#         text_encoder=text_encoder,
+#         max_len_tokens=hyperparams.MAX_LEN_TOKENS)
+#     return dataset
 
 
 def get_text_emb(text):
@@ -245,11 +247,187 @@ def get_text_emb(text):
     return text_emb_reduced, attention_mask
 
 
+class BaseDataset():
+    def load_or_create(self, config):
+        raise NotImplementedError()
 
 
+class DatasetImages(BaseDataset):
+    # Формирование батчей для картинок, текстов и масок
+    def collate_fn(self, batch):
+        if len(batch) % hyperparams.BATCH_SIZE != 0:
+            additional_batch = random.choices(batch, k=hyperparams.BATCH_SIZE - (len(batch) % hyperparams.BATCH_SIZE))
+            batch = batch + additional_batch
+        images, text_embs, masks = zip(*batch)  # Разбираем батч по частям
+        images = torch.stack(images)  # Объединяем картинки (B, C, H, W)
+        text_embs = torch.stack(text_embs)  # Объединяем текстовые эмбеддинги (B, max_length, txt_emb_dim)
+        masks = torch.stack(masks)  # Объединяем маски внимания (B, max_length)
+        return images, text_embs, masks
+
+    # --- Создание датасета для обучения со сложными картинками ---
+    def create_dataset(self, image_folder, captions_file):
+        transform = transforms.Compose([
+            transforms.Resize((hyperparams.IMG_SIZE, hyperparams.IMG_SIZE)),  # Приводим к IMG_SIZExIMG_SIZE
+            transforms.ToTensor(),  # Переводим в тензор (C, H, W)
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # Нормализация
+        ])
+        tokenizer = utils.load_data_from_file('datas/embedders/tokenizer.pkl')
+        text_encoder = utils.load_data_from_file('datas/embedders/text_encoder.pkl')
+        dataset = ImageTextDataset(
+            image_folder=image_folder,
+            captions_file=captions_file,
+            transform=transform,
+            tokenizer=tokenizer,
+            text_encoder=text_encoder,
+            max_len_tokens=hyperparams.MAX_LEN_TOKENS
+        )
+        return dataset
+
+    def load_or_create(self, config):
+        need_create = config["need_create"]
+        e_loader_file = config["e_loader"]
+        ed = None
+        if need_create:
+            ed = self.create()
+            need_save = config["need_save"]
+            if need_save:
+                utils.save_data_to_file(ed, e_loader_file)
+        else:
+            ed = self.load(e_loader_file)
+        return ed
+
+    def create(self):
+        dataset = self.create_dataset("datas/Flickr8k/Images/", "datas/Flickr8k/captions/captions.txt")
+        train_size = int(0.8 * len(dataset))
+        val_size = int(0.1 * len(dataset))
+        test_size = len(dataset) - train_size - val_size
+        train_dataset, val_dataset, test_dataset = random_split(dataset,
+                                                                [train_size, val_size, test_size])
+        train_loader = DataLoader(train_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=True,
+                                  collate_fn=self.collate_fn)
+        val_loader = DataLoader(val_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=False,
+                                collate_fn=self.collate_fn)
+        test_loader = DataLoader(test_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=False,
+                                 collate_fn=self.collate_fn)  # Тестовый датасет можно не перемешивать
+        e_loader = encapsulated_data.EncapsulatedDataloaders(train_loader, val_loader, test_loader)
+        return e_loader
+
+    def load(self, e_loader_file):
+        ed = utils.load_data_from_file(e_loader_file)
+        return ed
 
 
+class DatasetMNIST(BaseDataset):
+
+    def collate_fn(self, batch):
+        if len(batch) % hyperparams.BATCH_SIZE != 0:
+            additional_batch = random.choices(batch, k=hyperparams.BATCH_SIZE - (len(batch) % hyperparams.BATCH_SIZE))
+            batch = batch + additional_batch
+        images, text_embs, masks = zip(*batch)  # Разбираем батч по частям
+        images = torch.stack(images)  # Объединяем картинки (B, C, H, W)
+        text_embs = torch.stack(text_embs)  # Объединяем текстовые эмбеддинги (B, max_length, txt_emb_dim)
+        masks = torch.stack(masks)  # Объединяем маски внимания (B, max_length)
+        return images, text_embs, masks
+
+    def create_dataset_mnist(self, folder, train_flag):
+        transform = transforms.Compose([
+            transforms.Resize((hyperparams.IMG_SIZE, hyperparams.IMG_SIZE)),  # Приводим к IMG_SIZExIMG_SIZE
+            transforms.ToTensor(),  # Переводим в тензор (C, H, W)
+            transforms.Normalize(mean=[0.5], std=[0.5])  # Нормализация (один канал)
+        ])
+        tokenizer = utils.load_data_from_file('datas/embedders/tokenizer.pkl')
+        text_encoder = utils.load_data_from_file('datas/embedders/text_encoder.pkl')
+        dataset = MNISTTextDataset(root=folder,
+                                   train=train_flag,
+                                   transform=transform,
+                                   tokenizer=tokenizer,
+                                   text_encoder=text_encoder,
+                                   max_len_tokens=hyperparams.MAX_LEN_TOKENS)
+        return dataset
+
+    def load_or_create(self, config):
+        need_create = config["need_save"]
+        e_loader_file = config["e_loader"]
+        ed = None
+        if need_create:
+            ed = self.create()
+            need_save = config["need_save"]
+            if need_save:
+                utils.save_data_to_file(ed, e_loader_file)
+        else:
+            ed = self.load(e_loader_file)
+        return ed
+
+    def create(self):
+        # весь датасет mnist (тренировка + валидация (без теста)) (потому что True)
+        dataset_full = self.create_dataset_mnist("./datas", True)
+        train_size = int(0.84 * len(dataset_full))
+        val_size = len(dataset_full) - train_size
+        # Тестовый датасет отдельно
+        tst_dataset = self.create_dataset_mnist("./datas", False)
+        train_dataset, val_dataset = random_split(dataset_full, [train_size, val_size])
+        train_loader = DataLoader(train_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=True,
+                                  collate_fn=self.collate_fn)
+        val_loader = DataLoader(val_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=False,
+                                collate_fn=self.collate_fn)
+        test_loader = DataLoader(tst_dataset, batch_size=hyperparams.BATCH_SIZE, shuffle=False,
+                                 collate_fn=self.collate_fn)
+        e_loader = encapsulated_data.EncapsulatedDataloaders(train_loader, val_loader, test_loader)
+        return e_loader
+
+    def load(self, e_loader_file):
+        ed = utils.load_data_from_file(e_loader_file)
+        return ed
 
 
+class DatasetMNISTDescr(BaseDataset):
 
+    # Формирование батчей только для текстов и масок
+    def collate_fn_text_dataset(self, batch):
+        if len(batch) % hyperparams.BATCH_SIZE != 0:
+            additional_batch = random.choices(batch, k=hyperparams.BATCH_SIZE - (len(batch) % hyperparams.BATCH_SIZE))
+            batch = batch + additional_batch
+        text_embs, masks = zip(*batch)  # Разбираем батч по частям
+        text_embs = torch.stack(text_embs)  # Объединяем текстовые эмбеддинги (B, max_length, txt_emb_dim)
+        masks = torch.stack(masks)  # Объединяем маски внимания (B, max_length)
+        return text_embs, masks
 
+    # --- Создание датасета для текстов ---
+    def create_dataset_mnist_text_descr(self):
+        tokenizer = utils.load_data_from_file('datas/embedders/tokenizer.pkl')
+        text_encoder = utils.load_data_from_file('datas/embedders/text_encoder.pkl')
+        dataset = MNISTTextDescriptDataset(
+            tokenizer=tokenizer,
+            text_encoder=text_encoder,
+            max_len_tokens=hyperparams.MAX_LEN_TOKENS)
+        return dataset
+
+    def load_or_create(self, config):
+        need_create = config["need_create"]
+        e_loader_file = config["e_loader"]
+        ed = None
+        if need_create:
+            ed = self.create(config)
+            need_save = config["need_save"]
+            if need_save:
+                utils.save_data_to_file(ed, e_loader_file)
+        else:
+            ed = self.load(e_loader_file)
+        return ed
+
+    def create(self, config):
+        dataset_text_descr = self.create_dataset_mnist_text_descr()
+        text_descr_loader = DataLoader(dataset_text_descr, batch_size=hyperparams.BATCH_SIZE, shuffle=True,
+                                       collate_fn=self.collate_fn_text_dataset)
+        d = DatasetMNIST()
+        config = {"need_save": False, "need_create": True, "e_loader": config["e_loader"]}
+        ed = d.load_or_create(config)
+        train = ed.train
+        val = ed.val
+        test = ed.test
+        e_loader = encapsulated_data.EncapsulatedDataloadersTextDescr(train, val, test, text_descr_loader)
+        return e_loader
+
+    def load(self, e_loader_file):
+        ed = utils.load_data_from_file(e_loader_file)
+        return ed

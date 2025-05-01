@@ -328,6 +328,10 @@ def common_pipeline():
               "model_file": hyperparams.CURRENT_MODEL_NAME,
               "e_loader": "trained/e_loader_adapt.pkl",
               # "e_loader": "trained/e_loader.pkl",
+              "need_create": True,
+              # "need_create": False,
+              "need_save": True,
+              # "need_create": True,
 
               "model_dir": hyperparams.CURRENT_MODEL_DIR,
               "device": device,
@@ -343,7 +347,9 @@ def common_pipeline():
     model_manager = manager.ModelManager()
     sheduler = diff_proc.NoiseShedulerAdapt(hyperparams.T, 'linear',
                                             device)  # Этот класс более универсальный, поэтому можно его использовать для всех моделей
-    ed = utils.load_data_from_file(config["e_loader"])
+    dataset = dc.DatasetMNIST()
+    ed = dataset.load_or_create(config)
+    # ed = utils.load_data_from_file(config["e_loader"])
 
     shutdown_flag = False
     # mode = 'img'  #
