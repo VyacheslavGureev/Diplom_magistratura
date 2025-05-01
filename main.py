@@ -317,6 +317,11 @@ def common_pipeline():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # Реализация через регистрацию моделей и общий конфиг (с класс-методом внутри каждого класса модели).
     # Подход максимального ООП - отсутствие if-ов
+    dataset_registry = {
+        "mnist": dc.DatasetMNIST,
+        "images": dc.DatasetImages,
+        "mnist_descr": dc.DatasetMNISTDescr,
+    }
     model_registry = \
         {
             "ddpm": model_ddpm.EncapsulatedModel,
@@ -325,13 +330,18 @@ def common_pipeline():
     # Конфиг эксперимента
     config = {"model_type": "ddpm",
               # "model_type": "adaptive",
+              "dataset_type": "mnist",
+              # "dataset_type": "mnist_descr",
               "model_file": hyperparams.CURRENT_MODEL_NAME,
-              "e_loader": "trained/e_loader_adapt.pkl",
-              # "e_loader": "trained/e_loader.pkl",
-              "need_create": True,
-              # "need_create": False,
-              "need_save": True,
+              # "model_file": hyperparams.CURRENT_MODEL_NAME_ADAPT,
+              "e_loader": "trained/e_loader.pkl",
+              # "e_loader": "trained/e_loader_adapt.pkl",
+
               # "need_create": True,
+              "need_create": False,
+              # "need_save": True,
+              "need_save": False,
+
 
               "model_dir": hyperparams.CURRENT_MODEL_DIR,
               "device": device,
@@ -347,9 +357,8 @@ def common_pipeline():
     model_manager = manager.ModelManager()
     sheduler = diff_proc.NoiseShedulerAdapt(hyperparams.T, 'linear',
                                             device)  # Этот класс более универсальный, поэтому можно его использовать для всех моделей
-    dataset = dc.DatasetMNIST()
-    ed = dataset.load_or_create(config)
-    # ed = utils.load_data_from_file(config["e_loader"])
+    ds_cls = dataset_registry[config["dataset_type"]]
+    ed = ds_cls().load_or_create(config)
 
     shutdown_flag = False
     # mode = 'img'  #
@@ -369,7 +378,7 @@ def common_pipeline():
         # text = "Нарисована цифра два"
         # text = "На картинке цифра три"
         # text = "Четыре, написанное от руки"
-        text = "5"
+        text = "9"
         # text = "Цифра шесть, нарисованная от руки"
         # text = "На изображении семерка"
         # text = "Нарисована цифра восемь"
@@ -384,10 +393,13 @@ def common_pipeline():
     #     model_manager.test_model(em, ed)
     #     print('Тестирование завершено!')
     elif mode == 'img':
-        # i, _, _ = next(iter(ed.train))
+        i, _, _ = next(iter(ed.train))
         # i, _, _ = next(iter(ed.val))
-        i, _, _ = next(iter(ed.test))
+        # i, _, _ = next(iter(ed.test))
         utils.show_image(i[6])
+        # t, m = next(iter(ed.text_descr))
+        # print(t)
+        # print(m)
     # elif mode == 'create_train_save':
     #     em = model_manager.create_model()
     #     model_manager.train_model(em, ed, hyperparams.EPOCHS)

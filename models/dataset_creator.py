@@ -346,7 +346,7 @@ class DatasetMNIST(BaseDataset):
         return dataset
 
     def load_or_create(self, config):
-        need_create = config["need_save"]
+        need_create = config["need_create"]
         e_loader_file = config["e_loader"]
         ed = None
         if need_create:
