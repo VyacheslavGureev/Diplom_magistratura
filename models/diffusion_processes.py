@@ -64,23 +64,102 @@ class NoiseShedulerAdapt(NoiseSheduler):
     def __init__(self, T, type, device):
         super().__init__(T, type, device)
 
+    # def find_b_range(self, D, T, a_bar_min_target=1e-5, s_init=10, tol=1e-6):
+    #     """
+    #     D — дисперсия (скаляр или тензор)
+    #     T — число шагов
+    #     a_bar_min_target — минимальное допустимое значение a_bar_T
+    #     s_init — начальное соотношение b_max / b_min
+    #     tol — точность бинарного поиска
+    #     """
+    #     device = D.device if isinstance(D, torch.Tensor) else 'cpu'
+    #     D = torch.tensor(D, device=device, dtype=torch.float32)
+    #
+    #     s = s_init
+    #     low = 1e-6
+    #     high = 1.0 / D.item()
+    #
+    #     def compute_a_bar_min(b_max):
+    #         b_min = b_max / s
+    #         b_vals = torch.linspace(b_min, b_max, T, device=device)
+    #         a_vals = 1 - D * b_vals
+    #         a_bar = torch.cumprod(a_vals, dim=0)
+    #         return a_bar[-1].item()
+    #
+    #     # Бинарный поиск по b_max
+    #     for _ in range(50):
+    #         mid = (low + high) / 2
+    #         a_bar_T = compute_a_bar_min(mid)
+    #         if a_bar_T < a_bar_min_target:
+    #             high = mid
+    #         else:
+    #             low = mid
+    #         if abs(high - low) < tol:
+    #             break
+    #
+    #     # Финальные значения
+    #     b_max = low
+    #     b_min = b_max / s
+    #     b_vals = torch.linspace(b_min, b_max, T, device=device)
+    #     return b_vals
+
+
+    # def find_b_min(self, opora):
+    #     low = 0
+    #     high = opora
+    #
+    #     while low <= high:
+    #         mid = (low + high) / 2  # середина
+    #         if arr[mid] == target:
+    #             return mid
+    #         elif arr[mid] < target:
+    #             low = mid + 1  # ищем в правой половине
+    #         else:
+    #             high = mid - 1  # ищем в левой половине
+    #
+    #     return -1  # не найден
+
+
+
     # D это скаляр
     # Пока что такой пересчёт кэфов справедлив только для линейного расписания,
     # в будущем возможно добавлю пересчёт и для для косинусового расписания
     def update_coeffs(self, D):
-        # D = torch.tensor(100)
+        # D = torch.tensor(0.7)
+        # D = D.to(self.device)
+        # b_max_old = torch.max(self.b)
+        # b_min_old = torch.min(self.b)
+        #
+        # b_max_new = (1 / D) * 0.99
+        # s = b_max_old / b_max_new
+        # b_min_new = b_min_old / s
+        #
+        # self.b = torch.linspace(b_min_new, b_max_new, self.T).to(self.device)
+        # self.a = 1 - self.b * D
+        # self.a_bar = torch.cumprod(self.a, dim=0)
+        # self.a_bar = torch.clamp(self.a_bar, min=1e-30)
+
         D = D.to(self.device)
-        b_max_old = torch.max(self.b)
-        b_min_old = torch.min(self.b)
+        b_max = torch.max(self.b)
+        b_min = torch.min(self.b)
 
-        b_max_new = (1 / D) * 0.99
-        s = b_max_old / b_max_new
-        b_min_new = b_min_old / s
+        C = 0.000040358
+        eps = C**(1/self.T)
+        opora = (1 / D) * (1 - eps)
 
-        self.b = torch.linspace(b_min_new, b_max_new, self.T).to(self.device)
+        if b_max >= opora:
+            b_max_new = opora * 0.99
+            s = b_max / b_min
+            b_min_new = b_max_new / s
+            # b_min_new = b_max_new * 0.1
+            self.b = torch.linspace(b_min_new, b_max_new, self.T).to(self.device)
         self.a = 1 - self.b * D
         self.a_bar = torch.cumprod(self.a, dim=0)
-        self.a_bar = torch.clamp(self.a_bar, min=1e-30)
+        # print('111')
+
+
+
+
 
 
 def get_time_embedding(time_steps: torch.Tensor, t_emb_dim: int) -> torch.Tensor:

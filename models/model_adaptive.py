@@ -83,14 +83,14 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
         self.criterion = adapt_loss
         self.model.apply(self.init_weights)
 
-    # TODO: поменять функции активации здесь и в модели на softplus
+
     def init_weights(self, m):
         if isinstance(m, (nn.Conv2d, nn.Linear, nn.ConvTranspose2d)):
-            nn.init.xavier_uniform_(m.weight, gain=nn.init.calculate_gain('tanh'))
+            nn.init.xavier_uniform_(m.weight, gain=nn.init.calculate_gain('relu'))
         else:
             try:
                 if hasattr(m, 'weight') and m.weight is not None:
-                    nn.init.xavier_uniform_(m.weight, gain=nn.init.calculate_gain('tanh'))
+                    nn.init.xavier_uniform_(m.weight, gain=nn.init.calculate_gain('relu'))
             except:
                 pass
         if hasattr(m, 'bias') and m.bias is not None:
@@ -100,6 +100,23 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
                 nn.init.constant_(m.weight, 1.0)
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0.0)
+
+    # def init_weights(self, m):
+    #     if isinstance(m, (nn.Conv2d, nn.Linear, nn.ConvTranspose2d)):
+    #         nn.init.xavier_uniform_(m.weight, gain=nn.init.calculate_gain('tanh'))
+    #     else:
+    #         try:
+    #             if hasattr(m, 'weight') and m.weight is not None:
+    #                 nn.init.xavier_uniform_(m.weight, gain=nn.init.calculate_gain('tanh'))
+    #         except:
+    #             pass
+    #     if hasattr(m, 'bias') and m.bias is not None:
+    #         nn.init.constant_(m.bias, 0.0)
+    #     if isinstance(m, (nn.BatchNorm2d, nn.LayerNorm, nn.GroupNorm)):
+    #         if m.weight is not None:
+    #             nn.init.constant_(m.weight, 1.0)
+    #         if m.bias is not None:
+    #             nn.init.constant_(m.bias, 0.0)
 
     # Пример делигирования функции тренировки объекту модели
     # Это Visitor-like подход, корректный с точки зрения ООП

@@ -328,14 +328,15 @@ def common_pipeline():
             "adaptive": model_adaptive.EncapsulatedModelAdaptive,
         }
     # Конфиг эксперимента
-    config = {"model_type": "ddpm",
-              # "model_type": "adaptive",
-              "dataset_type": "mnist",
-              # "dataset_type": "mnist_descr",
-              "model_file": hyperparams.CURRENT_MODEL_NAME,
-              # "model_file": hyperparams.CURRENT_MODEL_NAME_ADAPT,
-              "e_loader": "trained/e_loader.pkl",
-              # "e_loader": "trained/e_loader_adapt.pkl",
+    config = {
+            # "model_type": "ddpm",
+              "model_type": "adaptive",
+              # "dataset_type": "mnist",
+              "dataset_type": "mnist_descr",
+              # "model_file": hyperparams.CURRENT_MODEL_NAME,
+              "model_file": hyperparams.CURRENT_MODEL_NAME_ADAPT,
+              # "e_loader": "trained/e_loader.pkl",
+              "e_loader": "trained/e_loader_adapt.pkl",
 
               # "need_create": True,
               "need_create": False,
@@ -362,9 +363,9 @@ def common_pipeline():
 
     shutdown_flag = False
     # mode = 'img'  #
-    # mode = 'create_train_test_save'  #
+    mode = 'create_train_test_save'  #
     # mode = 'load_train_test_save'  #
-    mode = 'load_gen'  #
+    # mode = 'load_gen'  #
     # mode = 'debug'  #
 
     # mode = 'create_train_save'  #
@@ -378,7 +379,7 @@ def common_pipeline():
         # text = "Нарисована цифра два"
         # text = "На картинке цифра три"
         # text = "Четыре, написанное от руки"
-        text = "9"
+        text = "5"
         # text = "Цифра шесть, нарисованная от руки"
         # text = "На изображении семерка"
         # text = "Нарисована цифра восемь"
@@ -408,7 +409,7 @@ def common_pipeline():
     #     print('Готово!')
     elif mode == 'create_train_test_save':
         model_manager.train_model(model, ed, hyperparams.EPOCHS, sheduler)
-        model.testing_model(ed, sheduler)
+        # model.testing_model(ed, sheduler)
         print('Тестирование завершено!')
         model.save_my_model_in_middle_train(config["model_dir"], config["model_file"])
         print('Готово! create_train_test_save')

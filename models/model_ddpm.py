@@ -303,9 +303,17 @@ class EncapsulatedModel(ModelInOnePlace):
                         x_t - ((1 - sheduler.a[step]) / (torch.sqrt(1 - sheduler.a_bar[step]))) * predicted_noise)
                 # Можно добавить дополнительные шаги, такие как коррекция или уменьшение шума
                 # Например, можно добавить немного шума обратно с каждым шагом:
-                # if step > 0:  # Добавляем случайный шум на всех шагах, кроме последнего
-                #     noise = torch.randn_like(x_t, device=next(model.parameters()).device) * (1 - sheduler.a[step]).sqrt() * 0.1
-                #     x_t += noise
+                if step == 0:
+                    sigma_t = 0
+                if step > 0:  # Добавляем случайный шум на всех шагах, кроме последнего
+                    beta_t = sheduler.b[step]
+                    alpha_bar_t = sheduler.a_bar[step]
+                    alpha_bar_prev = sheduler.a_bar[step - 1]
+                    sigma_t_squared = (1 - alpha_bar_prev) / (1 - alpha_bar_t) * beta_t
+                    sigma_t = sigma_t_squared.sqrt()
+                    # noise = torch.randn_like(x_t, device=self.device) * (1 - sheduler.a[step]).sqrt() * sigma_t
+                    noise = torch.randn_like(x_t, device=self.device) * sigma_t * 0.1
+                    x_t += noise
                 if i % 20 == 0:
                     # hyperparams.VIZ_STEP = True
                     vutils.save_image(x_t, f"trained/denoising/step_{step}.png", normalize=True)
