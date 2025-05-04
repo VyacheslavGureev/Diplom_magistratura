@@ -59,15 +59,14 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
         return cls(device=config["device"])
 
     def setup_from_config(self, config):
-        return self.setup(unet_config_file=config["unet_config_file"],
-                          adaptive_config_file=config["adaptive_config_file"])
+        return self.setup(model_config_file=config["model_config_file"])
 
-    def setup(self, unet_config_file, adaptive_config_file):
-        adaptive_config = utils.load_json(adaptive_config_file)
-        unet_config = utils.load_json(unet_config_file)
-        self.adaptive_config = adaptive_config
-        self.unet_config = unet_config
-        self.model = nn_model_combine.MyCombineModel(adaptive_config, unet_config)
+    def setup(self, model_config_file):
+        model_config = utils.load_json(model_config_file)
+        # unet_config = utils.load_json(unet_config_file)
+        self.model_config = model_config
+        # self.unet_config = unet_config
+        self.model = nn_model_combine.MyCombineModel(model_config)
         self.model.to(self.device)
         cross_attn_params = []
         other_params = []
@@ -164,9 +163,9 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
 
             if i % log_interval == 0:
                 print(f"Batch: {i}, Current Train Loss: {loss_train.item():.4f}")
-            if i % var_calc_interval == 0:
-                mu, D = self.model.adaptive_block.get_current_variance(text_descr_loader, self.device)
-                sheduler.update_coeffs(D)
+            # if i % var_calc_interval == 0:
+            #     mu, D = self.model.adaptive_block.get_current_variance(text_descr_loader, self.device)
+            #     sheduler.update_coeffs(D)
 
         print(f'Трен. заверш. {time.time() - start_time_epoch}')
         return running_loss
@@ -270,8 +269,9 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
                                       model_file):
         model_filepath = model_dir + model_file
         self.model.cpu()
-        unet_config = self.unet_config
-        adaptive_config = self.adaptive_config
+        model_config = self.model_config
+        # unet_config = self.unet_config
+        # adaptive_config = self.adaptive_config
         torch.save({
             'history': self.history,
             'model_state_dict': self.model.state_dict(),
@@ -279,8 +279,7 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
             # 'ema': ema_model.state_dict(),  # EMA-веса
             # 'decay': ema.decay
         }, model_filepath)
-        utils.save_json(unet_config, model_dir + hyperparams.CURRENT_MODEL_CONFIG)
-        utils.save_json(adaptive_config, model_dir + hyperparams.CURRENT_MODEL_CONFIG_ADAPT)
+        utils.save_json(model_config, hyperparams.CONFIGS_DIR + hyperparams.MODEL_CONFIG_ADAPT)
 
     # Загрузка
     def load_my_model_in_middle_train(self, model_dir, model_file):

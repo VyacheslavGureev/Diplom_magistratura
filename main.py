@@ -87,10 +87,10 @@ def vanile_ddpm():
     model_manager = manager.ModelManager()
     sheduler = diff_proc.NoiseSheduler(hyperparams.T, 'linear', device)
     if mode == 'load_gen':
-        em = model_manager.load_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR,
-                                                         hyperparams.CURRENT_MODEL_NAME,
-                                                         hyperparams.CURRENT_MODEL_DIR +
-                                                         hyperparams.CURRENT_MODEL_CONFIG,
+        em = model_manager.load_my_model_in_middle_train(hyperparams.MODELS_DIR,
+                                                         hyperparams.MODEL_NAME_DDPM,
+                                                         hyperparams.MODELS_DIR +
+                                                         hyperparams.MODEL_CONFIG_DDPM,
                                                          device)
         print('Загрузка завершена!')
         # text = "Это цифра ноль"
@@ -133,33 +133,33 @@ def vanile_ddpm():
         #                                                 hyperparams.CURRENT_MODEL_NAME)
         #     print('Готово!')
         elif mode == 'create_train_test_save':
-            em = model_manager.create_model(hyperparams.CURRENT_MODEL_DIR +
-                                            hyperparams.CURRENT_MODEL_CONFIG,
+            em = model_manager.create_model(hyperparams.MODELS_DIR +
+                                            hyperparams.MODEL_CONFIG_DDPM,
                                             device)
             model_manager.train_model(em, ed, hyperparams.EPOCHS, sheduler)
             # model_manager.test_model(em, ed, sheduler)
             print('Тестирование завершено!')
             model_manager.save_my_model_in_middle_train(em,
-                                                        hyperparams.CURRENT_MODEL_DIR,
-                                                        hyperparams.CURRENT_MODEL_NAME,
-                                                        hyperparams.CURRENT_MODEL_DIR +
-                                                        hyperparams.CURRENT_MODEL_CONFIG)
+                                                        hyperparams.MODELS_DIR,
+                                                        hyperparams.MODEL_NAME_DDPM,
+                                                        hyperparams.MODELS_DIR +
+                                                        hyperparams.MODEL_CONFIG_DDPM)
             print('Готово! create_train_test_save')
         elif mode == 'load_train_test_save':
-            em = model_manager.load_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR,
-                                                             hyperparams.CURRENT_MODEL_NAME,
-                                                             hyperparams.CURRENT_MODEL_DIR +
-                                                             hyperparams.CURRENT_MODEL_CONFIG,
+            em = model_manager.load_my_model_in_middle_train(hyperparams.MODELS_DIR,
+                                                             hyperparams.MODEL_NAME_DDPM,
+                                                             hyperparams.MODELS_DIR +
+                                                             hyperparams.MODEL_CONFIG_DDPM,
                                                              device)
             print('Загрузка завершена!')
             model_manager.train_model(em, ed, hyperparams.EPOCHS, sheduler)
             model_manager.test_model(em, ed, sheduler)
             print('Тестирование завершено!')
             model_manager.save_my_model_in_middle_train(em,
-                                                        hyperparams.CURRENT_MODEL_DIR,
-                                                        hyperparams.CURRENT_MODEL_NAME,
-                                                        hyperparams.CURRENT_MODEL_DIR +
-                                                        hyperparams.CURRENT_MODEL_CONFIG)
+                                                        hyperparams.MODELS_DIR,
+                                                        hyperparams.MODEL_NAME_DDPM,
+                                                        hyperparams.MODELS_DIR +
+                                                        hyperparams.MODEL_CONFIG_DDPM)
             print('Продолжение тренировки завершено!')
         elif mode == 'debug':
             # em = model_manager.create_model(device)
@@ -223,12 +223,12 @@ def adaptive_ddpm():
     ed = utils.load_data_from_file("trained/e_loader_adapt.pkl")
     if mode == 'load_gen':
         em = model_manager.create_model_adapt(
-            hyperparams.CURRENT_MODEL_DIR +
-            hyperparams.CURRENT_MODEL_CONFIG,
-            hyperparams.CURRENT_MODEL_DIR +
-            hyperparams.CURRENT_MODEL_CONFIG_ADAPT,
+            hyperparams.MODELS_DIR +
+            hyperparams.MODEL_CONFIG_DDPM,
+            hyperparams.MODELS_DIR +
+            hyperparams.MODEL_CONFIG_ADAPT,
             device)
-        em.load_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR, hyperparams.CURRENT_MODEL_NAME)
+        em.load_my_model_in_middle_train(hyperparams.MODELS_DIR, hyperparams.MODEL_NAME_DDPM)
         print('Загрузка завершена!')
         # text = "Это цифра ноль"
         # text = "Изображена единица"
@@ -273,29 +273,29 @@ def adaptive_ddpm():
         #     print('Готово!')
         elif mode == 'create_train_test_save':
             em = model_manager.create_model_adapt(
-                hyperparams.CURRENT_MODEL_DIR +
-                hyperparams.CURRENT_MODEL_CONFIG,
-                hyperparams.CURRENT_MODEL_DIR +
-                hyperparams.CURRENT_MODEL_CONFIG_ADAPT,
+                hyperparams.MODELS_DIR +
+                hyperparams.MODEL_CONFIG_DDPM,
+                hyperparams.MODELS_DIR +
+                hyperparams.MODEL_CONFIG_ADAPT,
                 device)
             model_manager.train_model(em, ed, hyperparams.EPOCHS, sheduler)
             em.testing_model(ed, sheduler)
             print('Тестирование завершено!')
-            em.save_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR, hyperparams.CURRENT_MODEL_NAME)
+            em.save_my_model_in_middle_train(hyperparams.MODELS_DIR, hyperparams.MODEL_NAME_DDPM)
             print('Готово! create_train_test_save')
         elif mode == 'load_train_test_save':
             em = model_manager.create_model_adapt(
-                hyperparams.CURRENT_MODEL_DIR +
-                hyperparams.CURRENT_MODEL_CONFIG,
-                hyperparams.CURRENT_MODEL_DIR +
-                hyperparams.CURRENT_MODEL_CONFIG_ADAPT,
+                hyperparams.MODELS_DIR +
+                hyperparams.MODEL_CONFIG_DDPM,
+                hyperparams.MODELS_DIR +
+                hyperparams.MODEL_CONFIG_ADAPT,
                 device)
-            em.load_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR, hyperparams.CURRENT_MODEL_NAME)
+            em.load_my_model_in_middle_train(hyperparams.MODELS_DIR, hyperparams.MODEL_NAME_DDPM)
             print('Загрузка завершена!')
             model_manager.train_model(em, ed, hyperparams.EPOCHS, sheduler)
             em.testing_model(ed, sheduler)
             print('Тестирование завершено!')
-            em.save_my_model_in_middle_train(hyperparams.CURRENT_MODEL_DIR, hyperparams.CURRENT_MODEL_NAME)
+            em.save_my_model_in_middle_train(hyperparams.MODELS_DIR, hyperparams.MODEL_NAME_DDPM)
             print('Продолжение тренировки завершено!')
         elif mode == 'debug':
             # em = model_manager.create_model(device)
@@ -319,7 +319,7 @@ def common_pipeline():
     # Подход максимального ООП - отсутствие if-ов
     dataset_registry = {
         "mnist": dc.DatasetMNIST,
-        "images": dc.DatasetImages,
+        # "images": dc.DatasetImages,
         "mnist_descr": dc.DatasetMNISTDescr,
     }
     model_registry = \
@@ -329,32 +329,30 @@ def common_pipeline():
         }
     # Конфиг эксперимента
     config = {
-            # "model_type": "ddpm",
-              "model_type": "adaptive",
-              # "dataset_type": "mnist",
-              "dataset_type": "mnist_descr",
-              # "model_file": hyperparams.CURRENT_MODEL_NAME,
-              "model_file": hyperparams.CURRENT_MODEL_NAME_ADAPT,
-              # "e_loader": "trained/e_loader.pkl",
-              "e_loader": "trained/e_loader_adapt.pkl",
+        "model_type": "ddpm",
+        # "model_type": "adaptive",
+        "dataset_type": "mnist",
+        # "dataset_type": "mnist_descr",
+        "model_file": hyperparams.MODEL_NAME_DDPM,
+        # "model_file": hyperparams.MODEL_NAME_ADAPT,
+        "e_loader": hyperparams.E_LOADERS_DIR + hyperparams.E_LOADER_DDPM,
+        # "e_loader": hyperparams.E_LOADERS_DIR + hyperparams.E_LOADER_ADAPT,
 
-              # "need_create": True,
-              "need_create": False,
-              # "need_save": True,
-              "need_save": False,
+        # "need_create": True,
+        "need_create": False,
+        # "need_save": True,
+        "need_save": False,
 
+        "model_dir": hyperparams.MODELS_DIR,
+        "device": device,
 
-              "model_dir": hyperparams.CURRENT_MODEL_DIR,
-              "device": device,
-              "unet_config_file": hyperparams.CURRENT_MODEL_DIR +
-                                  hyperparams.CURRENT_MODEL_CONFIG,
-              "adaptive_config_file": hyperparams.CURRENT_MODEL_DIR +
-                                      hyperparams.CURRENT_MODEL_CONFIG_ADAPT
-              }
+        "model_config_file": hyperparams.CONFIGS_DIR + hyperparams.MODEL_CONFIG_DDPM,
+        # "model_config_file": hyperparams.CONFIGS_DIR + hyperparams.MODEL_CONFIG_ADAPT,
+    }
     model_cls = model_registry[config["model_type"]]  # Получаем тип модели для текущего эксперимента
     # Каждая модель сама знает, какие поля конфига ей нужно взять для своей инициализации (делегирование)
     model = model_cls.from_config(config)  # Создание объекта класса с абстракцией от конкретной сигнатуры инициализации
-    model.setup_from_config(config)  # Создание объекта класса с абстракцией от конкретной сигнатуры инициализации
+    model.setup_from_config(config)
     model_manager = manager.ModelManager()
     sheduler = diff_proc.NoiseShedulerAdapt(hyperparams.T, 'linear',
                                             device)  # Этот класс более универсальный, поэтому можно его использовать для всех моделей
@@ -363,9 +361,9 @@ def common_pipeline():
 
     shutdown_flag = False
     # mode = 'img'  #
-    mode = 'create_train_test_save'  #
+    # mode = 'create_train_test_save'  #
     # mode = 'load_train_test_save'  #
-    # mode = 'load_gen'  #
+    mode = 'load_gen'  #
     # mode = 'debug'  #
 
     # mode = 'create_train_save'  #
@@ -379,7 +377,7 @@ def common_pipeline():
         # text = "Нарисована цифра два"
         # text = "На картинке цифра три"
         # text = "Четыре, написанное от руки"
-        text = "5"
+        text = "9"
         # text = "Цифра шесть, нарисованная от руки"
         # text = "На изображении семерка"
         # text = "Нарисована цифра восемь"
@@ -421,17 +419,17 @@ def common_pipeline():
         print('Тестирование завершено!')
         model.save_my_model_in_middle_train(config["model_dir"], config["model_file"])
         print('Продолжение тренировки завершено! load_train_test_save')
-    elif mode == 'debug':
-        # em = model_manager.create_model(device)
-        # model_manager.viz_my_model(em)
-
-        images, text_embs, attention_mask = next(iter(ed.test))
-        images = images.to(device)
-        t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
-        t = torch.tensor([199], device=device)
-        t = t.expand(hyperparams.BATCH_SIZE)
-        xt, added_noise = diff_proc.forward_diffusion(images, t, sheduler)
-        utils.show_image(xt[0])
+    # elif mode == 'debug':
+    #     # em = model_manager.create_model(device)
+    #     # model_manager.viz_my_model(em)
+    #
+    #     images, text_embs, attention_mask = next(iter(ed.test))
+    #     images = images.to(device)
+    #     t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
+    #     t = torch.tensor([199], device=device)
+    #     t = t.expand(hyperparams.BATCH_SIZE)
+    #     xt, added_noise = diff_proc.forward_diffusion(images, t, sheduler)
+    #     utils.show_image(xt[0])
     if shutdown_flag:
         os.system("shutdown /s /t 60")  # выключение через 60 секунд
 

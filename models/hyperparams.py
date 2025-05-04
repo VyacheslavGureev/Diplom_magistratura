@@ -1,5 +1,3 @@
-# TODO: Всё правильно и проверено
-
 # --- Изменение этого могут затронуть модель, менеджер и даталодер!!! ---
 IMG_SIZE = 32  # Размер изображений
 BATCH_SIZE = 16
@@ -16,15 +14,18 @@ MAX_LEN_TOKENS = 50
 
 # --- Можно менять почти безболезненно ---
 EPOCHS = 1
-# CURRENT_MODEL_CONFIG = '32p_mnist_config.json'
-# CURRENT_MODEL_NAME = '32p_mnist.pth'
-# CURRENT_MODEL_DIR = 'trained/'
 
-CURRENT_MODEL_DIR = 'trained/'
-CURRENT_MODEL_NAME = '32p_mnist.pth'
-CURRENT_MODEL_NAME_ADAPT = '32p_mnist_adapt.pth'
-CURRENT_MODEL_CONFIG = '32p_mnist_config.json'
-CURRENT_MODEL_CONFIG_ADAPT = '32p_mnist_config_adapt.json'
+MODELS_DIR = 'trained/models/'
+MODEL_NAME_DDPM = '32p_mnist.pth'
+MODEL_NAME_ADAPT = '32p_mnist_adapt.pth'
+
+CONFIGS_DIR = 'trained/configs/'
+MODEL_CONFIG_DDPM = '32p_mnist_config_ddpm.json'
+MODEL_CONFIG_ADAPT = '32p_mnist_config_adapt.json'
+
+E_LOADERS_DIR = 'trained/e_loaders/'
+E_LOADER_DDPM = 'e_loader.pkl'
+E_LOADER_ADAPT = 'e_loader_adapt.pkl'
 
 # --- Гиперпараметры для дебага ---
 # OGRANICHITEL = True

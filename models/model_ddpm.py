@@ -72,7 +72,7 @@ class EncapsulatedModel(ModelInOnePlace):
         return cls(device=config["device"])
 
     def setup_from_config(self, config):
-        return self.setup(unet_config_file=config["unet_config_file"])
+        return self.setup(unet_config_file=config["model_config_file"])
 
     def setup(self, unet_config_file):
         unet_config = utils.load_json(unet_config_file)
@@ -115,12 +115,9 @@ class EncapsulatedModel(ModelInOnePlace):
     def training_model(self, e_loader, sheduler):
         print("Тренировка")
         train_loader = e_loader.train
-
         self.model.train()  # Включаем режим обучения
-
         running_loss = 0.0
         log_interval = 50  # Выводим лосс каждые 50 батчей
-
         i = 0
         # scaler = torch.cuda.amp.GradScaler()
         start_time_ep = time.time()
@@ -130,36 +127,26 @@ class EncapsulatedModel(ModelInOnePlace):
                     print('Трен. заверш.')
                     break
             start_time = time.time()
-
             images, text_embs, attention_mask = images.to(self.device), text_embs.to(self.device), attention_mask.to(
                 self.device)
-
             self.optimizer.zero_grad()
-
             t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=self.device)  # случайные шаги t
             time_emb = diff_proc.get_time_embedding(t, hyperparams.TIME_EMB_DIM)
-
             xt, added_noise = diff_proc.forward_diffusion(images, t, sheduler)
-
             # with torch.cuda.amp.autocast():  # Включаем AMP
             predicted_noise = self.model(xt, text_embs, time_emb, attention_mask)
             loss_train = self.criterion(predicted_noise, added_noise)  # сравниваем с добавленным шумом
             running_loss += loss_train.item()
-
             # scaler.scale(loss_train).backward()  # Масштабируем градиенты
             # scaler.step(optimizer)  # Делаем шаг оптимизатора
             # scaler.update()  # Обновляем скейлер
-
             loss_train.backward()
             self.optimizer.step()
-
             i += 1
             end_time = time.time()
             print(f"Процентов {(i / len(train_loader)) * 100}, {end_time - start_time}, loss: {loss_train.item():.4f}")
-
             if i % log_interval == 0:
                 print(f"Batch: {i}, Current Train Loss: {loss_train.item():.4f}")
-
         end_time_ep = time.time()
         print(f'Трен. заверш. {end_time_ep - start_time_ep}')
         return running_loss
@@ -167,13 +154,10 @@ class EncapsulatedModel(ModelInOnePlace):
     def validating_model(self, e_loader, sheduler):
         print("Валидация")
         val_loader = e_loader.val
-
         self.model.eval()  # Переключаем в режим валидации
-
         # Оценка на валидационном датасете
         running_loss = 0.0
         log_interval = 50  # Выводим лосс каждые 50 батчей
-
         i = 0
         with torch.no_grad():
             start_time_ep = time.time()
@@ -185,24 +169,18 @@ class EncapsulatedModel(ModelInOnePlace):
                 start_time = time.time()
                 images, text_embs, attention_mask = images.to(self.device), text_embs.to(
                     self.device), attention_mask.to(self.device)
-
                 t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=self.device)  # случайные шаги t
                 time_emb = diff_proc.get_time_embedding(t, hyperparams.TIME_EMB_DIM)
                 xt, added_noise = diff_proc.forward_diffusion(images, t, sheduler)
-
                 # with torch.cuda.amp.autocast():  # Включаем AMP
                 predicted_noise = self.model(xt, text_embs, time_emb, attention_mask)
                 loss_val = self.criterion(predicted_noise, added_noise)
-
                 running_loss += loss_val.item()
-
                 i += 1
                 end_time = time.time()
                 print(f"Процентов {(i / len(val_loader)) * 100}, {end_time - start_time}")
-
                 if i % log_interval == 0:
                     print(f"Batch: {i}, Current Val Loss: {loss_val.item():.4f}")
-
             end_time_ep = time.time()
             print(f'Вал. заверш. {end_time_ep - start_time_ep}')
         return running_loss
@@ -210,9 +188,7 @@ class EncapsulatedModel(ModelInOnePlace):
     def testing_model(self, e_loader, sheduler):
         print("Тестирование")
         test_loader = e_loader.test
-
         self.model.eval()
-
         test_loss = 0.0
         i = 0
         with torch.no_grad():
@@ -223,20 +199,15 @@ class EncapsulatedModel(ModelInOnePlace):
                         print('Тест. заверш.')
                         break
                 start_time = time.time()
-
                 images, text_embs, attention_mask = images.to(self.device), text_embs.to(
                     self.device), attention_mask.to(self.device)
-
                 t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=self.device)  # случайные шаги t
                 time_emb = diff_proc.get_time_embedding(t, hyperparams.TIME_EMB_DIM)
-
                 xt, added_noise = diff_proc.forward_diffusion(images, t, sheduler)
-
                 # with torch.cuda.amp.autocast():  # Включаем AMP
                 predicted_noise = self.model(xt, text_embs, time_emb, attention_mask)
                 loss_test = self.criterion(predicted_noise, added_noise)
                 test_loss += loss_test.item()
-
                 i += 1
                 end_time = time.time()
                 print(
@@ -259,7 +230,7 @@ class EncapsulatedModel(ModelInOnePlace):
             # 'ema': ema_model.state_dict(),  # EMA-веса
             # 'decay': ema.decay
         }, model_filepath)
-        utils.save_json(unet_config, model_dir + hyperparams.CURRENT_MODEL_CONFIG)
+        utils.save_json(unet_config, hyperparams.CONFIGS_DIR + hyperparams.MODEL_CONFIG_DDPM)
 
     def load_my_model_in_middle_train(self, model_dir, model_file):
         model_filepath = model_dir + model_file
@@ -302,18 +273,18 @@ class EncapsulatedModel(ModelInOnePlace):
                 x_t = (1 / torch.sqrt(sheduler.a[step])) * (
                         x_t - ((1 - sheduler.a[step]) / (torch.sqrt(1 - sheduler.a_bar[step]))) * predicted_noise)
                 # Можно добавить дополнительные шаги, такие как коррекция или уменьшение шума
-                # Например, можно добавить немного шума обратно с каждым шагом:
-                if step == 0:
-                    sigma_t = 0
-                if step > 0:  # Добавляем случайный шум на всех шагах, кроме последнего
-                    beta_t = sheduler.b[step]
-                    alpha_bar_t = sheduler.a_bar[step]
-                    alpha_bar_prev = sheduler.a_bar[step - 1]
-                    sigma_t_squared = (1 - alpha_bar_prev) / (1 - alpha_bar_t) * beta_t
-                    sigma_t = sigma_t_squared.sqrt()
-                    # noise = torch.randn_like(x_t, device=self.device) * (1 - sheduler.a[step]).sqrt() * sigma_t
-                    noise = torch.randn_like(x_t, device=self.device) * sigma_t * 0.1
-                    x_t += noise
+                # Можно добавить немного шума обратно с каждым шагом:
+                # if step == 0:
+                #     sigma_t = 0
+                # if step > 0:  # Добавляем случайный шум на всех шагах, кроме последнего
+                #     beta_t = sheduler.b[step]
+                #     alpha_bar_t = sheduler.a_bar[step]
+                #     alpha_bar_prev = sheduler.a_bar[step - 1]
+                #     sigma_t_squared = (1 - alpha_bar_prev) / (1 - alpha_bar_t) * beta_t
+                #     sigma_t = sigma_t_squared.sqrt()
+                #     # noise = torch.randn_like(x_t, device=self.device) * (1 - sheduler.a[step]).sqrt() * sigma_t
+                #     noise = torch.randn_like(x_t, device=self.device) * sigma_t * 0.1
+                #     x_t += noise
                 if i % 20 == 0:
                     # hyperparams.VIZ_STEP = True
                     vutils.save_image(x_t, f"trained/denoising/step_{step}.png", normalize=True)
@@ -324,5 +295,3 @@ class EncapsulatedModel(ModelInOnePlace):
             images.append(imageio.imread(os.path.join("trained/denoising", step)))
         imageio.mimsave("trained/denoising/denoising_process.gif", images, duration=0.3)  # 0.3 секунды на кадр
         return x_t
-
-        # TODO добиться правильной работы и хороших результатов от обычной ddpm

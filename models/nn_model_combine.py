@@ -9,8 +9,10 @@ import models.hyperparams as hyperparams
 # TODO: Предварительно всё правильно
 
 class MyCombineModel(nn.Module):
-    def __init__(self, adapt_config, unet_config):
+    def __init__(self, model_config):
         super().__init__()
+        adapt_config = model_config["ADAPT"]
+        unet_config = model_config["DDPM"]
         self.adaptive_block = models.nn_model_adaptive.MyAdaptUNet(adapt_config)
         self.unet_block = models.nn_model.MyUNet(unet_config)
         self.net_log = nn.Sequential(
