@@ -114,7 +114,9 @@ class ResNetBlock(nn.Module):
         self.silu_2 = nn.SiLU()
         self.dropout = nn.Dropout(p=0.1)  # 10% нейронов будут обнулены
 
-    def forward(self, x, time_emb):
+    def forward(self, x, time_emb, log_D_proj=None):
+        if log_D_proj != None:
+            x = x + log_D_proj
         x = x + self.te_block(time_emb)[:, :, None, None]
         r = self.norm_1(x)
         r = self.silu_1(r)
@@ -132,7 +134,9 @@ class ResNetMiddleBlock(ResNetBlock):
         super().__init__(in_channels, out_channels, time_emb_dim, batch_size)
         self.self_attention = SelfAttentionBlock(out_channels)
 
-    def forward(self, x, time_emb):
+    def forward(self, x, time_emb, log_D_proj=None):
+        if log_D_proj != None:
+            x = x + log_D_proj
         x = x + self.te_block(time_emb)[:, :, None, None]
         r = self.norm_1(x)
         r = self.silu_1(r)
@@ -154,8 +158,8 @@ class DeepBottleneck(nn.Module):
         self.cross_attn_multi_head_1 = CrossAttentionMultiHead(text_emb_dim, out_C)
 
     # здесь правильный порядок преобразований!!!
-    def forward(self, x, text_emb, time_emb, attention_mask):
-        x = self.deep_block_1(x, time_emb)
+    def forward(self, x, text_emb, time_emb, attention_mask, log_D_proj):
+        x = self.deep_block_1(x, time_emb, log_D_proj)
         if text_emb != None:
             x = self.cross_attn_multi_head_1(x, text_emb, attention_mask)
         return x
@@ -263,13 +267,13 @@ class MyUNet(nn.Module):
         # Энкодер (downsampling)
         for i in range(0, len(self.down_blocks), 2):
             down = self.down_blocks[i]
-            x = down(x, time_emb)
+            x = down(x, time_emb, log_D_proj)
             skip_connections.append(x)
             downsample = self.down_blocks[i + 1]
             x = downsample(x)
         # Bottleneck
         for bn in self.bottleneck:
-            x = bn(x, text_emb, time_emb, attension_mask)
+            x = bn(x, text_emb, time_emb, attension_mask, log_D_proj)
         # if HP.VIZ_STEP:
         #     HP.VIZ_STEP = False
         #     visualize_tsne(x)
@@ -282,7 +286,7 @@ class MyUNet(nn.Module):
                 x = torch.cat([x, skip], dim=1)  # Skip connection
                 i += 1
             elif isinstance(decoder, ResNetBlock) or isinstance(decoder, ResNetMiddleBlock):
-                x = decoder(x, time_emb)
+                x = decoder(x, time_emb, log_D_proj)
             elif isinstance(decoder, CrossAttentionMultiHead):
                 x = decoder(x, text_emb, attension_mask)
         x = self.up_final(x)

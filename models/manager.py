@@ -57,8 +57,8 @@ class ModelManager():
         early_stopping = EarlyStopping(patience=4)
         for epoch in range(epochs):
             running_train_loss = e_model.training_model(e_loader, sheduler)
-            running_val_loss = e_model.validating_model(e_loader, sheduler)
-            # running_val_loss = 0
+            # running_val_loss = e_model.validating_model(e_loader, sheduler)
+            running_val_loss = 0
 
             avg_loss_train = running_train_loss / len(e_loader.train)
             avg_loss_val = running_val_loss / len(e_loader.val)

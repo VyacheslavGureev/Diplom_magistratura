@@ -244,8 +244,10 @@ class MyAdaptUNet(nn.Module):
     def forward(self, text_emb, attn_mask):  # time_emb будет None
         # if self.apply_fft:
         device = text_emb.device
-        x = torch.randn(hyperparams.BATCH_SIZE, hyperparams.CHANNELS, hyperparams.IMG_SIZE,
+        x = torch.zeros(hyperparams.BATCH_SIZE, hyperparams.CHANNELS, hyperparams.IMG_SIZE,
                             hyperparams.IMG_SIZE).to(device)
+        # x = torch.randn(hyperparams.BATCH_SIZE, hyperparams.CHANNELS, hyperparams.IMG_SIZE,
+        #                     hyperparams.IMG_SIZE).to(device)
         # 1. Берем FFT
         x_fft = torch.fft.fft2(x)
         amp = torch.sqrt(x_fft.real ** 2 + x_fft.imag ** 2 + 1e-8)

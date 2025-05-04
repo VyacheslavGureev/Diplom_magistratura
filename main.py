@@ -329,16 +329,16 @@ def common_pipeline():
         }
     # Конфиг эксперимента
     config = {
-        "model_type": "ddpm",
-        # "model_type": "adaptive",
-        "dataset_type": "mnist",
-        # "dataset_type": "mnist_descr",
-        "model_file": hyperparams.MODEL_NAME_DDPM,
-        # "model_file": hyperparams.MODEL_NAME_ADAPT,
-        "e_loader": hyperparams.E_LOADERS_DIR + hyperparams.E_LOADER_DDPM,
-        # "e_loader": hyperparams.E_LOADERS_DIR + hyperparams.E_LOADER_ADAPT,
-        "model_config_file": hyperparams.CONFIGS_DIR + hyperparams.MODEL_CONFIG_DDPM,
-        # "model_config_file": hyperparams.CONFIGS_DIR + hyperparams.MODEL_CONFIG_ADAPT,
+        # "model_type": "ddpm",
+        "model_type": "adaptive",
+        # "dataset_type": "mnist",
+        "dataset_type": "mnist_descr",
+        # "model_file": hyperparams.MODEL_NAME_DDPM,
+        "model_file": hyperparams.MODEL_NAME_ADAPT,
+        # "e_loader": hyperparams.E_LOADERS_DIR + hyperparams.E_LOADER_DDPM,
+        "e_loader": hyperparams.E_LOADERS_DIR + hyperparams.E_LOADER_ADAPT,
+        # "model_config_file": hyperparams.CONFIGS_DIR + hyperparams.MODEL_CONFIG_DDPM,
+        "model_config_file": hyperparams.CONFIGS_DIR + hyperparams.MODEL_CONFIG_ADAPT,
 
         # "need_create": True,
         "need_create": False,
@@ -360,9 +360,9 @@ def common_pipeline():
 
     shutdown_flag = False
     # mode = 'img'  #
-    # mode = 'create_train_test_save'  #
+    mode = 'create_train_test_save'  #
     # mode = 'load_train_test_save'  #
-    mode = 'load_gen'  #
+    # mode = 'load_gen'  #
     # mode = 'debug'  #
 
     # mode = 'create_train_save'  #
@@ -376,7 +376,7 @@ def common_pipeline():
         # text = "Нарисована цифра два"
         # text = "На картинке цифра три"
         # text = "Четыре, написанное от руки"
-        text = "3"
+        text = "2"
         # text = "Цифра шесть, нарисованная от руки"
         # text = "На изображении семерка"
         # text = "Нарисована цифра восемь"
@@ -406,7 +406,7 @@ def common_pipeline():
     #     print('Готово!')
     elif mode == 'create_train_test_save':
         model_manager.train_model(model, ed, hyperparams.EPOCHS, sheduler)
-        model.testing_model(ed, sheduler)
+        # model.testing_model(ed, sheduler)
         print('Тестирование завершено!')
         model.save_my_model_in_middle_train(config["model_dir"], config["model_file"])
         print('Готово! create_train_test_save')
