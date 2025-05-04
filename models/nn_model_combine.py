@@ -19,22 +19,18 @@ class MyCombineModel(nn.Module):
             nn.Conv2d(hyperparams.CHANNELS, hyperparams.CHANNELS, kernel_size=3, padding=1),
             nn.GroupNorm(num_groups=hyperparams.CHANNELS, num_channels=hyperparams.CHANNELS, affine=True),
             nn.SiLU(),
-            nn.Conv2d(hyperparams.CHANNELS, hyperparams.TIME_EMB_DIM, kernel_size=3, padding=1),
+            nn.Conv2d(hyperparams.CHANNELS, hyperparams.CHANNELS, kernel_size=3, padding=1),
         )
 
 
     def forward(self, x0, text_emb, attn_mask, sheduler):
         device = x0.device
         log_D, mu = self.adaptive_block(text_emb, attn_mask)
-
         log_D_proj = self.net_log(log_D)
-
         std = torch.exp(0.5 * log_D)
         e_adapt = std * torch.randn_like(std, device = device) + mu
-
         t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
         time_emb = diff_proc.get_time_embedding(t, hyperparams.TIME_EMB_DIM)
-        # time_emb = time_emb + log_D_proj
         xt, e_adapt_added = diff_proc.forward_diffusion(x0, t, sheduler, e_adapt)
         e_adapt_pred = self.unet_block(xt, text_emb, time_emb, attn_mask, log_D_proj)
         return e_adapt_added, e_adapt_pred

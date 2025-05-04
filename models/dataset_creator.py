@@ -297,6 +297,8 @@ class DatasetImages(BaseDataset):
         return ed
 
     def create(self):
+        # generator = torch.Generator().manual_seed(42)
+        # DataLoader(..., generator=generator, worker_init_fn=seed_worker)
         dataset = self.create_dataset("datas/Flickr8k/Images/", "datas/Flickr8k/captions/captions.txt")
         train_size = int(0.8 * len(dataset))
         val_size = int(0.1 * len(dataset))
