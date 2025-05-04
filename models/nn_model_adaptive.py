@@ -170,7 +170,6 @@ class MyAdaptUNet(nn.Module):
         out_C = 2 * self.orig_img_channels
         self.act_1 = nn.Softplus()
 
-
         # self.norm_1 = nn.LayerNorm([hyperparams.IMG_SIZE, hyperparams.IMG_SIZE])
         self.conv_1 = nn.Conv2d(self.orig_img_channels, out_C, kernel_size=3, padding=1, stride=1)
 
@@ -180,6 +179,8 @@ class MyAdaptUNet(nn.Module):
         # self.norm_2 = nn.LayerNorm([hyperparams.IMG_SIZE, hyperparams.IMG_SIZE])
         self.act_2 = nn.GELU()
         self.conv_2 = nn.Conv2d(out_C, self.orig_img_channels, kernel_size=3, padding=1, stride=1)
+        self.final = nn.Conv2d(self.orig_img_channels, self.orig_img_channels * 2, kernel_size=3, padding=1, stride=1)
+
 
         # self.prepare = nn.Sequential(
         #     nn.Softplus(),
@@ -192,52 +193,6 @@ class MyAdaptUNet(nn.Module):
         #     nn.Conv2d(in_C, self.orig_img_channels, kernel_size=3, padding=1, stride=1)
         # )
 
-
-
-        # first_out_C = self.config['DOWN'][0]['in_C']
-        #
-        # self.prepare = nn.Conv2d(self.orig_img_channels, first_out_C, kernel_size=1, padding=0,
-        #                          stride=1)  # Не меняем изображение, просто подготавливаем его для дальнейшей обработки, увеличивая кол-во каналов (линейное преобразование)
-        #
-        # self.down_blocks = nn.ModuleList()
-        # down_blocks = self.config['DOWN']
-        # for db in down_blocks:
-        #     self.down_blocks.append(
-        #         self.create_down_block(db['in_C'], db['in_C'], self.time_emb_dim, self.batch_size, db['SA']))
-        #     self.down_blocks.append(
-        #         nn.Conv2d(db['in_C'], db['out_C'], kernel_size=3, padding=1, stride=2))  # уменьшение размера в 2 раза
-        #
-        # self.bottleneck = nn.ModuleList()
-        # bottleneck = self.config['BOTTLENECK']
-        # for bn in bottleneck:
-        #     self.bottleneck.append(
-        #         self.create_bottleneck_block(bn['in_C'], bn['out_C'], self.txt_emb_dim, self.time_emb_dim,
-        #                                      self.batch_size))
-        #
-        # self.up_blocks = nn.ModuleList()
-        # up_blocks = self.config['UP']
-        # for ub in up_blocks:
-        #     self.up_blocks.append(SoftUpsample(ub['in_C'], ub['out_C']))
-        #     self.up_blocks.append(
-        #         self.create_up_block(ub['out_C'] + ub['sc_C'], ub['out_C'] + ub['sc_C'], self.time_emb_dim,
-        #                              self.batch_size,
-        #                              ub['SA']))
-        #     if ub['CA']:
-        #         self.up_blocks.append(CrossAttentionMultiHead(self.txt_emb_dim, ub['out_C'] + ub['sc_C']))
-        #
-        # in_C_final = self.config['UP'][-1]['out_C'] + self.config['UP'][-1]['sc_C']
-        # out_C_final = (in_C_final // 2) - first_out_C
-        # self.up_final = SoftUpsample(in_C_final, out_C_final)
-        # in_C = (first_out_C + out_C_final)
-        # out_C = in_C // 2
-        # self.single_conv_final = nn.Conv2d(in_C,
-        #                                    out_C,
-        #                                    kernel_size=3, padding=1,
-        #                                    stride=1)
-        # in_C = out_C
-        # self.final = nn.Sequential(
-        #     nn.Conv2d(in_C, self.orig_img_channels, kernel_size=3, padding=1, stride=1),
-        # )
         self.mu = 0  # среднее
         self.D = 1  # дисперсия
 
@@ -259,7 +214,7 @@ class MyAdaptUNet(nn.Module):
         else:
             return ResNetBlock(in_channels, out_channels, time_emb_dim, batch_size)
 
-    def get_current_variance(self, text_descr_loader, device):
+    def get_current_variance(self, train_loader, text_descr_loader, device):
         was_training = self.training  # True если train(), False если eval()
         self.eval()
         all_outputs = []
@@ -286,76 +241,22 @@ class MyAdaptUNet(nn.Module):
             self.eval()
         return self.mu, self.D
 
-    def forward(self, x, text_emb, time_emb, attension_mask):  # time_emb будет None
+    def forward(self, text_emb, attn_mask):  # time_emb будет None
         # if self.apply_fft:
-        #     # 1. Берем FFT
-        #     x_fft = torch.fft.fft2(x)
-        #     amp = torch.sqrt(x_fft.real ** 2 + x_fft.imag ** 2 + 1e-8)
-        #     phase = torch.atan2(x_fft.imag, x_fft.real)
-        #     # x = amp
-        #     # x = torch.log(amp + 1e-8)  # стабилизация перед сетью
-        #     scale = (amp.amax(dim=[-2, -1], keepdim=True) + 1e-8)
-        #     amp = amp / scale  # Нормализация на максимум
-        #     x = amp
-        #
-        # # 2. Прогоняем только амплитуду через нейронку
-        #
-        # x = self.prepare(x)
-        # skip_connections = []
-        # for i in range(0, len(self.down_blocks), 2):
-        #     down = self.down_blocks[i]
-        #     x = down(x, time_emb)
-        #     skip_connections.append(x)
-        #     downsample = self.down_blocks[i + 1]
-        #     x = downsample(x)
-        #
-        # for bn in self.bottleneck:
-        #     x = bn(x, text_emb, time_emb, attension_mask)
-        #
-        # i = 0
-        # for decoder in self.up_blocks:
-        #     if isinstance(decoder, SoftUpsample):
-        #         x = decoder(x)
-        #         skip = skip_connections[-(i + 1)]
-        #         x = torch.cat([x, skip], dim=1)  # Skip connection
-        #         i += 1
-        #     # elif isinstance(decoder, ResNetBlock) or isinstance(decoder, ResNetMiddleBlock):
-        #     elif isinstance(decoder, ResNetBlock):
-        #         x = decoder(x, time_emb)
-        #     elif isinstance(decoder, CrossAttentionMultiHead):
-        #         x = decoder(x, text_emb, attension_mask)
-        #
-        # x = self.up_final(x)
-        # skip = skip_connections[0]
-        # x = torch.cat([x, skip], dim=1)
-        # x = self.single_conv_final(x)
-        # x = self.final(x)
-        #
-        # # применение IFFT
-        # if self.apply_fft:
-        #     # 3. Восстанавливаем комплексный спектр
-        #     # x = torch.exp(x)  # обратная операция
-        #     x = x * scale
-        #     real_part = x * torch.cos(phase)
-        #     imag_part = x * torch.sin(phase)
-        #     x_fft_processed = torch.complex(real_part, imag_part)
-        #     # 4. IFFT
-        #     x = torch.fft.ifft2(x_fft_processed).real
-        # return x
-
-        if self.apply_fft:
-            # 1. Берем FFT
-            x_fft = torch.fft.fft2(x)
-            amp = torch.sqrt(x_fft.real ** 2 + x_fft.imag ** 2 + 1e-8)
-            phase = torch.atan2(x_fft.imag, x_fft.real)
-            x = amp
-
+        device = text_emb.device
+        x = torch.randn(hyperparams.BATCH_SIZE, hyperparams.CHANNELS, hyperparams.IMG_SIZE,
+                            hyperparams.IMG_SIZE).to(device)
+        # 1. Берем FFT
+        x_fft = torch.fft.fft2(x)
+        amp = torch.sqrt(x_fft.real ** 2 + x_fft.imag ** 2 + 1e-8)
+        phase = torch.atan2(x_fft.imag, x_fft.real)
+        x = amp
         # 2. Прогоняем только амплитуду через нейронку
         x = self.act_1(x)
         # x = self.norm_1(x)
         x = self.conv_1(x)
         in_attn = x
-        x = self.CA(x, text_emb, attension_mask)
+        x = self.CA(x, text_emb, attn_mask)
         x = self.dropout(x)
         out_attn = x
         x = in_attn + out_attn
@@ -368,12 +269,13 @@ class MyAdaptUNet(nn.Module):
         # x = self.final(x)
 
         # применение IFFT
-        if self.apply_fft:
+        # if self.apply_fft:
             # 3. Восстанавливаем комплексный спектр
-            real_part = x * torch.cos(phase)
-            imag_part = x * torch.sin(phase)
-            x_fft_processed = torch.complex(real_part, imag_part)
-            # 4. IFFT
-            x = torch.fft.ifft2(x_fft_processed).real
-        return x
-
+        real_part = x * torch.cos(phase)
+        imag_part = x * torch.sin(phase)
+        x_fft_processed = torch.complex(real_part, imag_part)
+        # 4. IFFT
+        x = torch.fft.ifft2(x_fft_processed).real
+        x = self.final(x)
+        log_D, mu = torch.chunk(x, chunks=2, dim=1)  # по канальному измерению
+        return log_D, mu

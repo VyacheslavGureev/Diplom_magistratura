@@ -80,7 +80,8 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
             {"params": other_params, "lr": hyperparams.LR},  # Обычный LR
             {"params": cross_attn_params, "lr": hyperparams.LR}  # Уменьшенный LR для Cross-Attention
         ], weight_decay=1e-4)
-        self.criterion = adapt_loss
+        # self.criterion = adapt_loss
+        self.criterion = nn.MSELoss()
         self.model.apply(self.init_weights)
 
 
@@ -123,13 +124,13 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
     def training_model(self, e_loader, sheduler):
         print("Тренировка адапт")
         train_loader = e_loader.train
-        text_descr_loader = e_loader.text_descr
+        # text_descr_loader = e_loader.text_descr
         # for i in range(10):
-        mu, D = self.model.adaptive_block.get_current_variance(text_descr_loader, self.device)
-        sheduler.update_coeffs(D)
+        # mu, D = self.model.adaptive_block.get_current_variance(train_loader, text_descr_loader, self.device)
+        # sheduler.update_coeffs(D)
         running_loss = 0.0
         log_interval = 50  # Выводим лосс каждые 50 батчей
-        var_calc_interval = 100  # Пересчитываем дисперсию каждые 100 батчей
+        # var_calc_interval = 100  # Пересчитываем дисперсию каждые 100 батчей
         i = 0
         self.model.train()
         # scaler = torch.cuda.amp.GradScaler()
@@ -143,11 +144,8 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
             images, text_embs, attention_mask = images.to(self.device), text_embs.to(self.device), attention_mask.to(
                 self.device)
             self.optimizer.zero_grad()
-            noise = torch.randn(hyperparams.BATCH_SIZE, hyperparams.CHANNELS, hyperparams.IMG_SIZE,
-                                hyperparams.IMG_SIZE).to(self.device)
             # with torch.cuda.amp.autocast():  # Включаем AMP
-            e_adapt_added, e_adapt_pred = self.model(noise, images, text_embs, attention_mask, mu,
-                                                     sheduler)
+            e_adapt_added, e_adapt_pred = self.model(images, text_embs, attention_mask, sheduler)
             # так как отнимали от адаптивного шума mu, то в лоссе также используем mu = 0
             loss_train = self.criterion(noise, e_adapt_added, e_adapt_pred, mu - mu,
                                         D)

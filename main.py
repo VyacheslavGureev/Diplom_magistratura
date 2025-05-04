@@ -409,7 +409,7 @@ def common_pipeline():
     #     print('Готово!')
     elif mode == 'create_train_test_save':
         model_manager.train_model(model, ed, hyperparams.EPOCHS, sheduler)
-        # model.testing_model(ed, sheduler)
+        model.testing_model(ed, sheduler)
         print('Тестирование завершено!')
         model.save_my_model_in_middle_train(config["model_dir"], config["model_file"])
         print('Готово! create_train_test_save')

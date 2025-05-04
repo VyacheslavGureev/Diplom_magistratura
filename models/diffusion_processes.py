@@ -139,6 +139,7 @@ class NoiseShedulerAdapt(NoiseSheduler):
         # self.a_bar = torch.cumprod(self.a, dim=0)
         # self.a_bar = torch.clamp(self.a_bar, min=1e-30)
 
+        D = torch.tensor(0.7)
         D = D.to(self.device)
         b_max = torch.max(self.b)
         b_min = torch.min(self.b)

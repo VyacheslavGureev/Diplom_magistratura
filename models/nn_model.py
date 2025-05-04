@@ -184,7 +184,9 @@ class ResNetBlock(nn.Module):
 
         self.dropout = nn.Dropout(p=0.1)  # 10% нейронов будут обнулены
 
-    def forward(self, x, time_emb):
+    def forward(self, x, time_emb, log_D_proj):
+        x = torch.cat([x, log_D_proj], dim=1) shdfgsjdhfjsdhf
+
         x = x + self.te_block(time_emb)[:, :, None, None]
         r = self.norm_1(x)
         r = self.silu_1(r)
