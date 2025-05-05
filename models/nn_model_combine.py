@@ -14,6 +14,8 @@ class MyCombineModel(nn.Module):
         adapt_config = model_config["ADAPT"]
         unet_config = model_config["DDPM"]
         self.adaptive_block = models.nn_model_adaptive.MyAdaptUNet(adapt_config)
+        # for param in self.adaptive_block.parameters():
+        #     param.requires_grad = False
         self.unet_block = models.nn_model.MyUNet(unet_config)
         # self.net_log = nn.Sequential(
         #     nn.Conv2d(hyperparams.CHANNELS, hyperparams.CHANNELS, kernel_size=3, padding=1),
@@ -24,15 +26,16 @@ class MyCombineModel(nn.Module):
 
     def forward(self, x0, text_emb, attn_mask, sheduler):
         device = x0.device
+        # self.adaptive_block.eval()
         log_D, mu = self.adaptive_block(text_emb, attn_mask)
-        log_D = torch.ones_like(x0, device = device)
-        mu = torch.zeros_like(x0, device = device)
+        # log_D = torch.zeros_like(x0, device = device)
+        # log_D = torch.ones_like(x0, device = device)
+        # mu = torch.zeros_like(x0, device = device)
         # log_D_proj = self.net_log(log_D)
         # log_D = torch.zeros_like(x0)
         # mu = torch.zeros_like(x0)
         std = torch.exp(0.5 * log_D)
         e_adapt = std * torch.randn_like(std, device=device) + mu
-        # e_adapt = torch.randn_like(x0, device = device)
         t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=device)  # случайные шаги t
         time_emb = diff_proc.get_time_embedding(t, hyperparams.TIME_EMB_DIM)
         xt, e_adapt_added = diff_proc.forward_diffusion(x0, t, sheduler, e_adapt)

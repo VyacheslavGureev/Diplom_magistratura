@@ -242,6 +242,9 @@ class MyAdaptUNet(nn.Module):
         return self.mu, self.D
 
     def forward(self, text_emb, attn_mask):  # time_emb будет None
+        # was_training = self.training  # True если train(), False если eval()
+        # self.eval()
+
         # if self.apply_fft:
         device = text_emb.device
         x = torch.zeros(hyperparams.BATCH_SIZE, hyperparams.CHANNELS, hyperparams.IMG_SIZE,
@@ -280,4 +283,9 @@ class MyAdaptUNet(nn.Module):
         x = torch.fft.ifft2(x_fft_processed).real
         x = self.final(x)
         log_D, mu = torch.chunk(x, chunks=2, dim=1)  # по канальному измерению
+
+        # if was_training:
+        #     self.train()
+        # else:
+        #     self.eval()
         return log_D, mu

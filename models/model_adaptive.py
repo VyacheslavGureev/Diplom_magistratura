@@ -68,6 +68,15 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
         # self.unet_config = unet_config
         self.model = nn_model_combine.MyCombineModel(model_config)
         self.model.to(self.device)
+
+        # for param in self.model.adaptive_block.parameters():
+        #     param.requires_grad = False
+        # adaptive_params = set(p for p in self.model.adaptive_block.parameters())
+        # other_params = [p for n, p in self.model.named_parameters()
+        #                 if p.requires_grad and "cross_attn" not in n and p not in adaptive_params]
+        # cross_attn_params = [p for n, p in self.model.named_parameters()
+        #                      if p.requires_grad and "cross_attn" in n and p not in adaptive_params]
+
         cross_attn_params = []
         other_params = []
         for name, param in self.model.named_parameters():
@@ -313,8 +322,9 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
         with torch.no_grad():
             i = 0
             for step in tqdm(range(hyperparams.T - 1, -1, -1), colour='white'):
-                log_D = torch.ones_like(x_t)
-                # log_D, mu = self.model.adaptive_block(text_embedding, attn_mask)
+                # log_D = torch.ones_like(x_t)
+                # log_D = torch.zeros_like(x_t)
+                log_D, mu = self.model.adaptive_block(text_embedding, attn_mask)
                 # log_D_proj = self.model.net_log(log_D)
                 time_embedding = diff_proc.get_time_embedding(t_tensor[step], hyperparams.TIME_EMB_DIM)
                 predicted_noise = self.model.unet_block(x_t, text_embedding, time_embedding, attn_mask, log_D)
