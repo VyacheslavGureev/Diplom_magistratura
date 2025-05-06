@@ -162,6 +162,16 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
             loss_train.backward()
             self.optimizer.step()
 
+            total_norm = 0.0
+            for p in self.model.parameters():
+                if p.grad is not None:
+                    param_norm = p.grad.data.norm(2)  # L2-норма
+                    total_norm += param_norm.item() ** 2
+
+            total_norm = total_norm ** 0.5
+            print(f"Gradient norm: {total_norm:.4f}")
+
+
             # scaler.scale(loss_train).backward()  # Масштабируем градиенты
             # scaler.step(self.optimizer)  # Делаем шаг оптимизатора
             # scaler.update()  # Обновляем скейлер
@@ -325,6 +335,9 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
                 # log_D = torch.ones_like(x_t)
                 # log_D = torch.zeros_like(x_t)
                 log_D, mu = self.model.adaptive_block(text_embedding, attn_mask)
+                log_D = self.model.act_logD(log_D)
+                # mu = self.model.act_mu(mu)
+
                 # log_D_proj = self.model.net_log(log_D)
                 time_embedding = diff_proc.get_time_embedding(t_tensor[step], hyperparams.TIME_EMB_DIM)
                 predicted_noise = self.model.unet_block(x_t, text_embedding, time_embedding, attn_mask, log_D)

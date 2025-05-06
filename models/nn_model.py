@@ -5,6 +5,18 @@ from torchviz import make_dot
 import models.hyperparams as HP
 
 
+def get_auto_groupnorm(num_channels: int, max_groups: int = 32) -> nn.GroupNorm:
+    """
+    Возвращает GroupNorm с автоматически подобранным числом групп.
+    max_groups — максимальное допустимое количество групп.
+    """
+    for num_groups in reversed(range(1, max_groups + 1)):
+        if num_channels % num_groups == 0:
+            return nn.GroupNorm(num_groups=num_groups, num_channels=num_channels, affine=True)
+    # Если ничего не подошло, fallback к InstanceNorm (группы = каналы)
+    return nn.GroupNorm(num_groups=1, num_channels=num_channels, affine=True)
+
+
 # TODO: Всё правильно и проверено
 class CrossAttentionMultiHead(nn.Module):
     def __init__(self, text_dim, img_dim, num_heads=4, dropout=0.1):
@@ -95,12 +107,49 @@ class TimeEmbedding(nn.Module):
 class ResNetBlock(nn.Module):
     def __init__(self, in_channels, out_channels, time_emb_dim, batch_size):
         super().__init__()
-        self.initialized = False
+        # self.initialized = False
         self.bs = batch_size
+        self.silu_logD = nn.SiLU()
         self.silu_1 = nn.SiLU()
         self.silu_2 = nn.SiLU()
         self.dropout = nn.Dropout(p=0.1)  # 10% нейронов будут обнулены
 
+        self.te_block = TimeEmbedding(in_channels, time_emb_dim)
+        self.residual = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+        self.conv_logD = nn.Conv2d(in_channels + 1, in_channels, kernel_size=3, padding=1,
+                                   stride=1)
+        self.conv_1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1,
+                                stride=1)
+        self.conv_2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1,
+                                stride=1)
+
+        if self.bs < 16:
+            self.norm_logD = get_auto_groupnorm(in_channels + 1)  # Автоматически подберет подходящее num_groups
+            self.norm_1 = get_auto_groupnorm(in_channels)
+            self.norm_2 = get_auto_groupnorm(out_channels)
+        else:
+            self.norm_logD = nn.BatchNorm2d(num_features=in_channels + 1)
+            self.norm_1 = nn.BatchNorm2d(num_features=in_channels)
+            self.norm_2 = nn.BatchNorm2d(num_features=out_channels)
+
+        # if self.bs < 16:
+        #     if in_channels % 8 != 0:
+        #         self.norm_logD = nn.GroupNorm(num_groups=in_channels, num_channels=in_channels, affine=True)
+        #         self.norm_1 = nn.GroupNorm(num_groups=in_channels, num_channels=in_channels, affine=True)
+        #     else:
+        #         self.norm_logD = nn.GroupNorm(num_groups=8, num_channels=in_channels, affine=True)
+        #         self.norm_1 = nn.GroupNorm(num_groups=8, num_channels=in_channels, affine=True)
+        #     self.norm_2 = nn.GroupNorm(num_groups=8, num_channels=out_channels, affine=True)
+        # else:
+        #     self.norm_logD = nn.BatchNorm2d(num_features=in_channels)
+        #     self.norm_1 = nn.BatchNorm2d(num_features=in_channels)
+        #     self.norm_2 = nn.BatchNorm2d(num_features=out_channels)
+
+
+
+        # def _build_layers(self, in_channels, out_channels, time_emb_dim):
+        #
+        # # Создание свёрток с нужным количеством входных каналов
         # self.te_block = TimeEmbedding(in_channels, time_emb_dim)
         # self.residual = nn.Conv2d(in_channels, out_channels, kernel_size=1)
         # self.conv_1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1,
@@ -116,33 +165,13 @@ class ResNetBlock(nn.Module):
         # else:
         #     self.norm_1 = nn.BatchNorm2d(num_features=in_channels)
         #     self.norm_2 = nn.BatchNorm2d(num_features=out_channels)
-
-        # TODO: доделать блок отложенной инициализации
-        def _build_layers(self, in_channels, out_channels, time_emb_dim):
-
-        # Создание свёрток с нужным количеством входных каналов
-        self.te_block = TimeEmbedding(in_channels, time_emb_dim)
-        self.residual = nn.Conv2d(in_channels, out_channels, kernel_size=1)
-        self.conv_1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1,
-                                stride=1)
-        self.conv_2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1,
-                                stride=1)
-        if self.bs < 16:
-            if in_channels % 8 != 0:
-                self.norm_1 = nn.GroupNorm(num_groups=in_channels, num_channels=in_channels, affine=True)
-            else:
-                self.norm_1 = nn.GroupNorm(num_groups=8, num_channels=in_channels, affine=True)
-            self.norm_2 = nn.GroupNorm(num_groups=8, num_channels=out_channels, affine=True)
-        else:
-            self.norm_1 = nn.BatchNorm2d(num_features=in_channels)
-            self.norm_2 = nn.BatchNorm2d(num_features=out_channels)
-
-        self.conv1 = nn.Conv2d(in_channels, self.out_channels, kernel_size=self.kernel_size, padding=self.padding)
-        self.norm1 = nn.GroupNorm(32, self.out_channels)
-        self.activation = nn.SiLU()
-        self.conv2 = nn.Conv2d(self.out_channels, self.out_channels, kernel_size=self.kernel_size,
-                               padding=self.padding)
-        self.initialized = True
+        #
+        # self.conv1 = nn.Conv2d(in_channels, self.out_channels, kernel_size=self.kernel_size, padding=self.padding)
+        # self.norm1 = nn.GroupNorm(32, self.out_channels)
+        # self.activation = nn.SiLU()
+        # self.conv2 = nn.Conv2d(self.out_channels, self.out_channels, kernel_size=self.kernel_size,
+        #                        padding=self.padding)
+        # self.initialized = True
 
     def forward(self, x, time_emb, log_D_proj=None):
         if log_D_proj != None:
@@ -152,6 +181,15 @@ class ResNetBlock(nn.Module):
                 log_D_proj = F.interpolate(log_D_proj, size=(hp // (hp // hx), wp // (hp // hx)), mode="bilinear",
                                            align_corners=False)
             x = x + log_D_proj
+            # bx, cx, hx, wx = x.shape
+            # bp, cp, hp, wp = log_D_proj.shape
+            # if hx != hp and wx != wp:
+            #     log_D_proj = F.interpolate(log_D_proj, size=(hp // (hp // hx), wp // (hp // hx)), mode="bilinear",
+            #                                align_corners=False)
+            # x = torch.cat([x, log_D_proj], dim=1)
+            # x = self.norm_logD(x)
+            # x = self.silu_logD(x)
+            # x = self.conv_logD(x)
         x = x + self.te_block(time_emb)[:, :, None, None]
         r = self.norm_1(x)
         r = self.silu_1(r)
@@ -176,6 +214,15 @@ class ResNetMiddleBlock(ResNetBlock):
             if bx == bp and cp == 1 and hx != hp and wx != wp:
                 log_D_proj = F.interpolate(log_D_proj, size=(hp // 2, wp // 2), mode="bilinear", align_corners=False)
             x = x + log_D_proj
+            # bx, cx, hx, wx = x.shape
+            # bp, cp, hp, wp = log_D_proj.shape
+            # if hx != hp and wx != wp:
+            #     log_D_proj = F.interpolate(log_D_proj, size=(hp // (hp // hx), wp // (hp // hx)), mode="bilinear",
+            #                                align_corners=False)
+            # x = torch.cat([x, log_D_proj], dim=1)
+            # x = self.norm_logD(x)
+            # x = self.silu_logD(x)
+            # x = self.conv_logD(x)
         x = x + self.te_block(time_emb)[:, :, None, None]
         r = self.norm_1(x)
         r = self.silu_1(r)
@@ -235,11 +282,16 @@ class MyUNet(nn.Module):
 
         first_out_C = self.config['DOWN'][0]['in_C']
 
+        if self.batch_size < 16:
+            self.norm_logD = get_auto_groupnorm(self.orig_img_channels + 1)
+        else:
+            self.norm_logD = nn.BatchNorm2d(num_features=self.orig_img_channels + 1)
+        self.act_logD = nn.SiLU()
+        self.prepare_with_log_D_proj = nn.Conv2d(self.orig_img_channels + 1, self.orig_img_channels, kernel_size=3, padding=1, stride=1)
+
         self.prepare = nn.Conv2d(self.orig_img_channels, first_out_C, kernel_size=1, padding=0,
                                  stride=1)  # Не меняем изображение, просто подготавливаем его для дальнейшей обработки, увеличивая кол-во каналов (линейное преобразование)
-        self.prepare_with_log_D_proj = nn.Conv2d(self.orig_img_channels + 1, first_out_C, kernel_size=1,
-                                                 padding=0,
-                                                 stride=1)
+
         self.down_blocks = nn.ModuleList()
         down_blocks = self.config['DOWN']
         for db in down_blocks:
@@ -298,10 +350,17 @@ class MyUNet(nn.Module):
 
     def forward(self, x, text_emb, time_emb, attension_mask, log_D_proj=None):
         if log_D_proj != None:
-            x = torch.cat([x, log_D_proj], dim=1)  # x: [B, C, H, W], log_D: [B, 1, H, W] -> [B, C+1, H, W]
-            x = self.prepare_with_log_D_proj(x)
-        else:
-            x = self.prepare(x)
+            # x = torch.cat([x, log_D_proj], dim=1)  # x: [B, C, H, W], log_D: [B, 1, H, W] -> [B, C+1, H, W]
+            # x = self.norm_logD(x)
+            # x = self.act_logD(x)
+            # x = self.prepare_with_log_D_proj(x)
+            bx, cx, hx, wx = x.shape
+            bp, cp, hp, wp = log_D_proj.shape
+            if hx != hp and wx != wp:
+                log_D_proj = F.interpolate(log_D_proj, size=(hp // (hp // hx), wp // (hp // hx)), mode="bilinear",
+                                           align_corners=False)
+            x = x + log_D_proj
+        x = self.prepare(x)
         skip_connections = []
         # Энкодер (downsampling)
         for i in range(0, len(self.down_blocks), 2):
@@ -324,8 +383,8 @@ class MyUNet(nn.Module):
                 x = torch.cat([x, skip], dim=1)  # Skip connection
                 i += 1
             elif isinstance(decoder, ResNetBlock) or isinstance(decoder, ResNetMiddleBlock):
-                # x = decoder(x, time_emb, log_D_proj)
-                x = decoder(x, time_emb)
+                x = decoder(x, time_emb, log_D_proj)
+                # x = decoder(x, time_emb)
             elif isinstance(decoder, CrossAttentionMultiHead):
                 x = decoder(x, text_emb, attension_mask)
         x = self.up_final(x)

@@ -360,8 +360,8 @@ def common_pipeline():
 
     shutdown_flag = False
     # mode = 'img'  #
-    mode = 'create_train_test_save'  #
-    # mode = 'load_gen'  #
+    # mode = 'create_train_test_save'  #
+    mode = 'load_gen'  #
     # mode = 'load_train_test_save'  #
     # mode = 'debug'  #
 
@@ -376,7 +376,7 @@ def common_pipeline():
         # text = "Нарисована цифра два"
         # text = "На картинке цифра три"
         # text = "Четыре, написанное от руки"
-        text = "5"
+        text = "9"
         # text = "Цифра шесть, нарисованная от руки"
         # text = "На изображении семерка"
         # text = "Нарисована цифра восемь"
