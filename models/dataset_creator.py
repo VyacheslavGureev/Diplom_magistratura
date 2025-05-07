@@ -15,27 +15,6 @@ import models.encapsulated_data as encapsulated_data
 
 
 # TODO: Предварительно всё правильно
-# # Формирование батчей для картинок, текстов и масок
-# def collate_fn(batch):
-#     if len(batch) % hyperparams.BATCH_SIZE != 0:
-#         additional_batch = random.choices(batch, k=hyperparams.BATCH_SIZE - (len(batch) % hyperparams.BATCH_SIZE))
-#         batch = batch + additional_batch
-#     images, text_embs, masks = zip(*batch)  # Разбираем батч по частям
-#     images = torch.stack(images)  # Объединяем картинки (B, C, H, W)
-#     text_embs = torch.stack(text_embs)  # Объединяем текстовые эмбеддинги (B, max_length, txt_emb_dim)
-#     masks = torch.stack(masks)  # Объединяем маски внимания (B, max_length)
-#     return images, text_embs, masks
-
-
-# # Формирование батчей только для текстов и масок
-# def collate_fn_text_dataset(batch):
-#     if len(batch) % hyperparams.BATCH_SIZE != 0:
-#         additional_batch = random.choices(batch, k=hyperparams.BATCH_SIZE - (len(batch) % hyperparams.BATCH_SIZE))
-#         batch = batch + additional_batch
-#     text_embs, masks = zip(*batch)  # Разбираем батч по частям
-#     text_embs = torch.stack(text_embs)  # Объединяем текстовые эмбеддинги (B, max_length, txt_emb_dim)
-#     masks = torch.stack(masks)  # Объединяем маски внимания (B, max_length)
-#     return text_embs, masks
 
 
 class MNISTTextDataset(Dataset):
@@ -180,55 +159,6 @@ class ImageTextDataset(Dataset):
         with torch.no_grad():
             text_emb_reduced = self.text_encoder(**tokens).last_hidden_state.squeeze(0)  # (max_length, txt_emb_dim)
         return image, text_emb_reduced, attention_mask
-
-
-# # --- Создание датасета для обучения со сложными картинками ---
-# def create_dataset(image_folder, captions_file):
-#     transform = transforms.Compose([
-#         transforms.Resize((hyperparams.IMG_SIZE, hyperparams.IMG_SIZE)),  # Приводим к IMG_SIZExIMG_SIZE
-#         transforms.ToTensor(),  # Переводим в тензор (C, H, W)
-#         transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # Нормализация
-#     ])
-#     tokenizer = utils.load_data_from_file('datas/embedders/tokenizer.pkl')
-#     text_encoder = utils.load_data_from_file('datas/embedders/text_encoder.pkl')
-#     dataset = ImageTextDataset(
-#         image_folder=image_folder,
-#         captions_file=captions_file,
-#         transform=transform,
-#         tokenizer=tokenizer,
-#         text_encoder=text_encoder,
-#         max_len_tokens=hyperparams.MAX_LEN_TOKENS
-#     )
-#     return dataset
-
-
-# # --- Создание датасета для обучения ---
-# def create_dataset_mnist(folder, train_flag):
-#     transform = transforms.Compose([
-#         transforms.Resize((hyperparams.IMG_SIZE, hyperparams.IMG_SIZE)),  # Приводим к IMG_SIZExIMG_SIZE
-#         transforms.ToTensor(),  # Переводим в тензор (C, H, W)
-#         transforms.Normalize(mean=[0.5], std=[0.5])  # Нормализация (один канал)
-#     ])
-#     tokenizer = utils.load_data_from_file('datas/embedders/tokenizer.pkl')
-#     text_encoder = utils.load_data_from_file('datas/embedders/text_encoder.pkl')
-#     dataset = MNISTTextDataset(root=folder,
-#                                train=train_flag,
-#                                transform=transform,
-#                                tokenizer=tokenizer,
-#                                text_encoder=text_encoder,
-#                                max_len_tokens=hyperparams.MAX_LEN_TOKENS)
-#     return dataset
-
-
-# # --- Создание датасета для текстов ---
-# def create_dataset_mnist_text_descr():
-#     tokenizer = utils.load_data_from_file('datas/embedders/tokenizer.pkl')
-#     text_encoder = utils.load_data_from_file('datas/embedders/text_encoder.pkl')
-#     dataset = MNISTTextDescriptDataset(
-#         tokenizer=tokenizer,
-#         text_encoder=text_encoder,
-#         max_len_tokens=hyperparams.MAX_LEN_TOKENS)
-#     return dataset
 
 
 def get_text_emb(text):

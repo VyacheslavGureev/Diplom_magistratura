@@ -9,6 +9,7 @@ import torch.optim as optim
 from tqdm import tqdm
 import torchvision.utils as vutils
 import imageio
+from torch.optim.lr_scheduler import StepLR
 
 import models.hyperparams as hyperparams
 import models.nn_model as nn_model
@@ -78,6 +79,7 @@ class EncapsulatedModel(ModelInOnePlace):
         unet_config = utils.load_json(unet_config_file)
         self.unet_config = unet_config
         self.model = nn_model.MyUNet(unet_config)
+        self.initialize_weights_stable(self.model)
         self.model.to(self.device)
         # self.ema = EMA(self.model, self.device)  # ??? (пока не работаю с ema, в будущем доработаю)
         cross_attn_params = []
@@ -95,24 +97,39 @@ class EncapsulatedModel(ModelInOnePlace):
         self.criterion = nn.MSELoss()
         # self.model.apply(self.init_weights)
 
-    # def init_weights(self, m):
-    #     if isinstance(m, (nn.Conv2d, nn.Linear, nn.ConvTranspose2d)):
-    #         nn.init.xavier_uniform_(m.weight, gain=nn.init.calculate_gain('tanh'))
-    #     else:
-    #         try:
-    #             if hasattr(m, 'weight') and m.weight is not None:
-    #                 nn.init.xavier_uniform_(m.weight, gain=nn.init.calculate_gain('tanh'))
-    #         except:
-    #             pass
-    #     if hasattr(m, 'bias') and m.bias is not None:
-    #         nn.init.constant_(m.bias, 0.0)
-    #     if isinstance(m, (nn.BatchNorm2d, nn.LayerNorm, nn.GroupNorm)):
-    #         if m.weight is not None:
-    #             nn.init.constant_(m.weight, 1.0)
-    #         if m.bias is not None:
-    #             nn.init.constant_(m.bias, 0.0)
+    def initialize_weights_stable(self, model):
+        """
+            Применяет максимально универсальную инициализацию весов:
+            - Xavier Uniform для линейных и сверточных слоев
+            - Orthogonal как запасной вариант
+            - Смещения обнуляются
+            """
+        for name, module in model.named_modules():
+            if isinstance(module, (nn.Conv2d, nn.ConvTranspose2d, nn.Linear)):
+                try:
+                    nn.init.xavier_uniform_(module.weight)
+                except ValueError:
+                    nn.init.orthogonal_(module.weight)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+            elif isinstance(module, nn.Embedding):
+                nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            elif isinstance(module, (nn.BatchNorm2d, nn.GroupNorm, nn.LayerNorm)):
+                if hasattr(module, 'weight') and module.weight is not None:
+                    nn.init.ones_(module.weight)
+                if hasattr(module, 'bias') and module.bias is not None:
+                    nn.init.zeros_(module.bias)
+            # Для безопасной поддержки любых пользовательских слоев
+            elif hasattr(module, 'weight') and module.weight is not None:
+                try:
+                    nn.init.xavier_uniform_(module.weight)
+                except Exception:
+                    pass
+                if hasattr(module, 'bias') and module.bias is not None:
+                    nn.init.zeros_(module.bias)
 
     def training_model(self, e_loader, sheduler):
+        steplr = StepLR(self.optimizer, step_size=1000, gamma=0.8)
         print("Тренировка")
         train_loader = e_loader.train
         self.model.train()  # Включаем режим обучения
@@ -142,6 +159,17 @@ class EncapsulatedModel(ModelInOnePlace):
             # scaler.update()  # Обновляем скейлер
             loss_train.backward()
             self.optimizer.step()
+
+            total_norm = 0.0
+            for p in self.model.parameters():
+                if p.grad is not None:
+                    param_norm = p.grad.data.norm(2)  # L2-норма
+                    total_norm += param_norm.item() ** 2
+            total_norm = total_norm ** 0.5
+            print(f"Gradient norm: {total_norm:.4f}")
+
+
+
             i += 1
             end_time = time.time()
             print(f"Процентов {(i / len(train_loader)) * 100}, {end_time - start_time}, loss: {loss_train.item():.4f}")

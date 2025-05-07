@@ -20,7 +20,6 @@ import models.dataset_creator as dc
 import models.model_ddpm as model_ddpm
 
 
-# TODO: Предварительно всё правильно
 
 def kl_divergence(mu, logvar):
     return (0.5 * (mu.pow(2) + logvar.exp() - 1 - logvar)).mean()
@@ -43,12 +42,6 @@ def adapt_loss(e, e_a, e_a_pred, mu, D, mse=torch.nn.MSELoss()):
         e_a_pred,
         e_a) + lam_4 * kl_divergence(
         mu, logvar)
-    # L = lam_1 * mse(e, e_a) + lam_2 * (
-    #         mse(torch.fft.fft2(e).real, torch.fft.fft2(e_a).real) + mse(torch.fft.fft2(e).imag,
-    #                                                                     torch.fft.fft2(e_a).imag)) + lam_3 * mse(
-    #     e_a_pred,
-    #     e_a) + lam_4 * kl_divergence(
-    #     mu, logvar)
     return L
 
 
@@ -167,10 +160,8 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
                 if p.grad is not None:
                     param_norm = p.grad.data.norm(2)  # L2-норма
                     total_norm += param_norm.item() ** 2
-
             total_norm = total_norm ** 0.5
             print(f"Gradient norm: {total_norm:.4f}")
-
 
             # scaler.scale(loss_train).backward()  # Масштабируем градиенты
             # scaler.step(self.optimizer)  # Делаем шаг оптимизатора
@@ -185,7 +176,6 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
             # if i % var_calc_interval == 0:
             #     mu, D = self.model.adaptive_block.get_current_variance(text_descr_loader, self.device)
             #     sheduler.update_coeffs(D)
-
         print(f'Трен. заверш. {time.time() - start_time_epoch}')
         return running_loss
 
@@ -337,7 +327,6 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
                 log_D, mu = self.model.adaptive_block(text_embedding, attn_mask)
                 log_D = self.model.act_logD(log_D)
                 # mu = self.model.act_mu(mu)
-
                 # log_D_proj = self.model.net_log(log_D)
                 time_embedding = diff_proc.get_time_embedding(t_tensor[step], hyperparams.TIME_EMB_DIM)
                 predicted_noise = self.model.unet_block(x_t, text_embedding, time_embedding, attn_mask, log_D)

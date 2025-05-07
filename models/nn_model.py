@@ -132,46 +132,6 @@ class ResNetBlock(nn.Module):
             self.norm_1 = nn.BatchNorm2d(num_features=in_channels)
             self.norm_2 = nn.BatchNorm2d(num_features=out_channels)
 
-        # if self.bs < 16:
-        #     if in_channels % 8 != 0:
-        #         self.norm_logD = nn.GroupNorm(num_groups=in_channels, num_channels=in_channels, affine=True)
-        #         self.norm_1 = nn.GroupNorm(num_groups=in_channels, num_channels=in_channels, affine=True)
-        #     else:
-        #         self.norm_logD = nn.GroupNorm(num_groups=8, num_channels=in_channels, affine=True)
-        #         self.norm_1 = nn.GroupNorm(num_groups=8, num_channels=in_channels, affine=True)
-        #     self.norm_2 = nn.GroupNorm(num_groups=8, num_channels=out_channels, affine=True)
-        # else:
-        #     self.norm_logD = nn.BatchNorm2d(num_features=in_channels)
-        #     self.norm_1 = nn.BatchNorm2d(num_features=in_channels)
-        #     self.norm_2 = nn.BatchNorm2d(num_features=out_channels)
-
-
-
-        # def _build_layers(self, in_channels, out_channels, time_emb_dim):
-        #
-        # # Создание свёрток с нужным количеством входных каналов
-        # self.te_block = TimeEmbedding(in_channels, time_emb_dim)
-        # self.residual = nn.Conv2d(in_channels, out_channels, kernel_size=1)
-        # self.conv_1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1,
-        #                         stride=1)
-        # self.conv_2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1,
-        #                         stride=1)
-        # if self.bs < 16:
-        #     if in_channels % 8 != 0:
-        #         self.norm_1 = nn.GroupNorm(num_groups=in_channels, num_channels=in_channels, affine=True)
-        #     else:
-        #         self.norm_1 = nn.GroupNorm(num_groups=8, num_channels=in_channels, affine=True)
-        #     self.norm_2 = nn.GroupNorm(num_groups=8, num_channels=out_channels, affine=True)
-        # else:
-        #     self.norm_1 = nn.BatchNorm2d(num_features=in_channels)
-        #     self.norm_2 = nn.BatchNorm2d(num_features=out_channels)
-        #
-        # self.conv1 = nn.Conv2d(in_channels, self.out_channels, kernel_size=self.kernel_size, padding=self.padding)
-        # self.norm1 = nn.GroupNorm(32, self.out_channels)
-        # self.activation = nn.SiLU()
-        # self.conv2 = nn.Conv2d(self.out_channels, self.out_channels, kernel_size=self.kernel_size,
-        #                        padding=self.padding)
-        # self.initialized = True
 
     def forward(self, x, time_emb, log_D_proj=None):
         if log_D_proj != None:

@@ -6,8 +6,6 @@ import models.diffusion_processes as diff_proc
 import models.hyperparams as hyperparams
 
 
-# TODO: Предварительно всё правильно
-
 class MyCombineModel(nn.Module):
     def __init__(self, model_config):
         super().__init__()
@@ -19,12 +17,6 @@ class MyCombineModel(nn.Module):
         self.unet_block = models.nn_model.MyUNet(unet_config)
         self.act_logD = nn.Tanh()
         self.act_mu = nn.Tanh()
-        # self.net_log = nn.Sequential(
-        #     nn.Conv2d(hyperparams.CHANNELS, hyperparams.CHANNELS, kernel_size=3, padding=1),
-        #     nn.GroupNorm(num_groups=hyperparams.CHANNELS, num_channels=hyperparams.CHANNELS, affine=True),
-        #     nn.SiLU(),
-        #     nn.Conv2d(hyperparams.CHANNELS, hyperparams.CHANNELS, kernel_size=3, padding=1),
-        # )
 
     def forward(self, x0, text_emb, attn_mask, sheduler):
         device = x0.device
@@ -46,11 +38,3 @@ class MyCombineModel(nn.Module):
 
         e_adapt_pred = self.unet_block(xt, text_emb, time_emb, attn_mask, log_D)
         return e_adapt_added, e_adapt_pred
-
-        # e_adapt = self.adaptive_block(noise, text_emb, None, attn_mask)
-        # e_adapt = e_adapt - mu  # центрируем адаптивный шум, чтобы модель учила полезные паттерны и не отвлекалась на среднее
-        # t = torch.randint(0, hyperparams.T, (hyperparams.BATCH_SIZE,), device=noise.device)  # случайные шаги t
-        # time_emb = diff_proc.get_time_embedding(t, hyperparams.TIME_EMB_DIM)
-        # xt, e_adapt_added = diff_proc.forward_diffusion(x0, t, sheduler, e_adapt)
-        # e_adapt_pred = self.unet_block(xt, text_emb, time_emb, attn_mask)
-        # return e_adapt_added, e_adapt_pred

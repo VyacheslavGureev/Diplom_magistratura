@@ -22,12 +22,6 @@ class CrossAttentionMultiHead(nn.Module):
         self.norm = nn.LayerNorm(img_dim)
         self.dropout = nn.Dropout(dropout)
 
-        # Инициализация
-        # nn.init.xavier_uniform_(self.to_q.weight, gain=0.02)
-        # nn.init.xavier_uniform_(self.to_kv.weight, gain=0.02)
-        # nn.init.zeros_(self.to_q.bias)
-        # nn.init.zeros_(self.to_kv.bias)
-
     def forward(self, x, text_emb, mask=None):
         B, C, H, W = x.shape
         x_flat = x.permute(0, 2, 3, 1).view(B, H * W, C)  # [B, H*W, C]
@@ -97,9 +91,6 @@ class ResNetBlock(nn.Module):
         else:
             self.norm_1 = nn.BatchNorm2d(num_features=in_channels)
             self.norm_2 = nn.BatchNorm2d(num_features=out_channels)
-
-        # self.silu_1 = nn.SiLU()
-        # self.silu_2 = nn.SiLU()
 
         self.act_1 = nn.Tanh()
         self.act_2 = nn.Tanh()
@@ -181,7 +172,6 @@ class MyAdaptUNet(nn.Module):
         self.conv_2 = nn.Conv2d(out_C, self.orig_img_channels, kernel_size=3, padding=1, stride=1)
         self.final = nn.Conv2d(self.orig_img_channels, self.orig_img_channels * 2, kernel_size=3, padding=1, stride=1)
 
-
         # self.prepare = nn.Sequential(
         #     nn.Softplus(),
         #     nn.Conv2d(self.orig_img_channels, out_C, kernel_size=3, padding=1, stride=1),
@@ -248,7 +238,7 @@ class MyAdaptUNet(nn.Module):
         # if self.apply_fft:
         device = text_emb.device
         x = torch.zeros(hyperparams.BATCH_SIZE, hyperparams.CHANNELS, hyperparams.IMG_SIZE,
-                            hyperparams.IMG_SIZE).to(device)
+                        hyperparams.IMG_SIZE).to(device)
         # x = torch.randn(hyperparams.BATCH_SIZE, hyperparams.CHANNELS, hyperparams.IMG_SIZE,
         #                     hyperparams.IMG_SIZE).to(device)
         # 1. Берем FFT
@@ -275,7 +265,7 @@ class MyAdaptUNet(nn.Module):
 
         # применение IFFT
         # if self.apply_fft:
-            # 3. Восстанавливаем комплексный спектр
+        # 3. Восстанавливаем комплексный спектр
         real_part = x * torch.cos(phase)
         imag_part = x * torch.sin(phase)
         x_fft_processed = torch.complex(real_part, imag_part)
