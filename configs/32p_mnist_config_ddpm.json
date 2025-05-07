@@ -1,0 +1,45 @@
+{
+    "TEXT_EMB_DIM": 512,
+    "TIME_EMB_DIM": 256,
+    "BATCH_SIZE": 16,
+    "ORIG_C": 1,
+    "DOWN": [
+        {
+            "in_C": 16,
+            "out_C": 32,
+            "SA": false
+        },
+        {
+            "in_C": 32,
+            "out_C": 64,
+            "SA": true
+        },
+        {
+            "in_C": 64,
+            "out_C": 128,
+            "SA": false
+        }
+    ],
+    "BOTTLENECK": [
+        {
+            "in_C": 128,
+            "out_C": 128
+        }
+    ],
+    "UP": [
+        {
+            "in_C": 128,
+            "out_C": 64,
+            "sc_C": 64,
+            "SA": false,
+            "CA": false
+        },
+        {
+            "in_C": 128,
+            "out_C": 32,
+            "sc_C": 32,
+            "SA": true,
+            "CA": true
+        }
+    ]
+}

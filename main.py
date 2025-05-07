@@ -329,16 +329,16 @@ def common_pipeline():
         }
     # Конфиг эксперимента
     config = {
-        # "model_type": "ddpm",
-        "model_type": "adaptive",
-        # "dataset_type": "mnist",
-        "dataset_type": "mnist_descr",
-        # "model_file": hyperparams.MODEL_NAME_DDPM,
-        "model_file": hyperparams.MODEL_NAME_ADAPT,
-        # "e_loader": hyperparams.E_LOADERS_DIR + hyperparams.E_LOADER_DDPM,
-        "e_loader": hyperparams.E_LOADERS_DIR + hyperparams.E_LOADER_ADAPT,
-        # "model_config_file": hyperparams.CONFIGS_DIR + hyperparams.MODEL_CONFIG_DDPM,
-        "model_config_file": hyperparams.CONFIGS_DIR + hyperparams.MODEL_CONFIG_ADAPT,
+        "model_type": "ddpm",
+        # "model_type": "adaptive",
+        "dataset_type": "mnist",
+        # "dataset_type": "mnist_descr",
+        "model_file": hyperparams.MODEL_NAME_DDPM,
+        # "model_file": hyperparams.MODEL_NAME_ADAPT,
+        "e_loader": hyperparams.E_LOADERS_DIR + hyperparams.E_LOADER_DDPM,
+        # "e_loader": hyperparams.E_LOADERS_DIR + hyperparams.E_LOADER_ADAPT,
+        "model_config_file": hyperparams.CONFIGS_DIR + hyperparams.MODEL_CONFIG_DDPM,
+        # "model_config_file": hyperparams.CONFIGS_DIR + hyperparams.MODEL_CONFIG_ADAPT,
 
         # "need_create": True,
         "need_create": False,
@@ -360,8 +360,8 @@ def common_pipeline():
 
     shutdown_flag = False
     # mode = 'img'  #
-    # mode = 'create_train_test_save'  #
-    mode = 'load_gen'  #
+    mode = 'create_train_test_save'  #
+    # mode = 'load_gen'  #
     # mode = 'load_train_test_save'  #
     # mode = 'debug'  #
 

@@ -19,7 +19,8 @@ MODELS_DIR = 'trained/models/'
 MODEL_NAME_DDPM = '32p_mnist.pth'
 MODEL_NAME_ADAPT = '32p_mnist_adapt.pth'
 
-CONFIGS_DIR = 'trained/configs/'
+# CONFIGS_DIR = 'trained/configs/'
+CONFIGS_DIR = 'configs/'
 MODEL_CONFIG_DDPM = '32p_mnist_config_ddpm.json'
 MODEL_CONFIG_ADAPT = '32p_mnist_config_adapt.json'
 
