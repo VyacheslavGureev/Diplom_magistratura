@@ -10,6 +10,8 @@ from tqdm import tqdm
 import torchvision.utils as vutils
 import imageio
 
+from PyQt5.QtCore import QObject, pyqtSignal
+
 import models.hyperparams as hyperparams
 import models.nn_model as nn_model
 import models.nn_model_adaptive as nn_model_adapt
@@ -18,7 +20,6 @@ import models.utils as utils
 import models.diffusion_processes as diff_proc
 import models.dataset_creator as dc
 import models.model_ddpm as model_ddpm
-
 
 
 def kl_divergence(mu, logvar):
@@ -84,7 +85,6 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
         # self.criterion = adapt_loss
         self.criterion = nn.MSELoss()
         # self.model.apply(self.init_weights)
-
 
     # def init_weights(self, m):
     #     if isinstance(m, (nn.Conv2d, nn.Linear, nn.ConvTranspose2d)):
@@ -322,6 +322,7 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
         with torch.no_grad():
             i = 0
             for step in tqdm(range(hyperparams.T - 1, -1, -1), colour='white'):
+                self.signal_progress.emit(int((i / hyperparams.T) * 100))
                 # log_D = torch.ones_like(x_t)
                 # log_D = torch.zeros_like(x_t)
                 log_D, mu = self.model.adaptive_block(text_embedding, attn_mask)
@@ -346,7 +347,9 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
                            reverse=True):
             images.append(imageio.imread(os.path.join("trained/denoising_adapt", step)))
         imageio.mimsave("trained/denoising_adapt/denoising_process.gif", images, duration=0.3)  # 0.3 секунды на кадр
-        return x_t
+        self.signal_progress.emit(0)
+        vutils.save_image(x_t, f"trained/denoising_adapt/denoised_result.png", normalize=True)
+        return x_t, "trained/denoising_adapt/denoised_result.png"
 
     def get_img_from_text(self, text, sheduler, **kwargs):
         ed = kwargs['ed']

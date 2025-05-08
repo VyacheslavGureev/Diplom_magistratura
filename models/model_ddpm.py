@@ -11,6 +11,8 @@ import torchvision.utils as vutils
 import imageio
 from torch.optim.lr_scheduler import StepLR
 
+from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
+
 import models.hyperparams as hyperparams
 import models.nn_model as nn_model
 import models.nn_model_adaptive as nn_model_adapt
@@ -24,12 +26,23 @@ import models.dataset_creator as dc
 
 # Данные про модель в одном месте. Решение в стиле "тяжёлого" ООП, через setup
 # Базовый класс
-class ModelInOnePlace:
+class ModelInOnePlace(QObject):
+    signal_progress = pyqtSignal(int)
+    task_done = pyqtSignal(object, str)
+    start_task = pyqtSignal(str, object, object)
+
     # Общий метод инициализации
     def __init__(self, device):
+        super().__init__()
         self.device = device
         print(self.device)
         self.history = {0: {'train_loss': math.inf, 'val_loss': math.inf}}
+        self.start_task.connect(self.run)
+
+    @pyqtSlot(str, object, object)
+    def run(self, txt, sheduler, ed):
+        image, filepath = self.get_img_from_text(txt, sheduler, ed=ed)
+        self.task_done.emit(image, filepath)
 
     @classmethod
     def from_config(cls, config):
@@ -168,8 +181,6 @@ class EncapsulatedModel(ModelInOnePlace):
             total_norm = total_norm ** 0.5
             print(f"Gradient norm: {total_norm:.4f}")
 
-
-
             i += 1
             end_time = time.time()
             print(f"Процентов {(i / len(train_loader)) * 100}, {end_time - start_time}, loss: {loss_train.item():.4f}")
@@ -296,6 +307,7 @@ class EncapsulatedModel(ModelInOnePlace):
         with torch.no_grad():
             i = 0
             for step in tqdm(range(hyperparams.T - 1, -1, -1), colour='white'):
+                self.signal_progress.emit(int((i / hyperparams.T) * 100))
                 time_embedding = diff_proc.get_time_embedding(t_tensor[step], hyperparams.TIME_EMB_DIM)
                 predicted_noise = self.model(x_t, text_embedding, time_embedding, attn_mask)
                 x_t = (1 / torch.sqrt(sheduler.a[step])) * (
@@ -322,4 +334,6 @@ class EncapsulatedModel(ModelInOnePlace):
                            reverse=True):
             images.append(imageio.imread(os.path.join("trained/denoising", step)))
         imageio.mimsave("trained/denoising/denoising_process.gif", images, duration=0.3)  # 0.3 секунды на кадр
-        return x_t
+        self.signal_progress.emit(0)
+        vutils.save_image(x_t, f"trained/denoising/denoised_result.png", normalize=True)
+        return x_t, "trained/denoising/denoised_result.png"

@@ -24,12 +24,11 @@ import models.model_ddpm as model_ddpm
 
 
 def main():
-    pass
-    # app = QtWidgets.QApplication(sys.argv)
-    # common_obj = CommonObject()
-    # # Отображаем главное окно
-    # common_obj.main_view.show()
-    # sys.exit(app.exec_())
+    app = QtWidgets.QApplication(sys.argv)
+    common_obj = CommonObject()
+    # Отображаем главное окно
+    common_obj.main_view.show()
+    sys.exit(app.exec_())
 
 
 def common_pipeline():
@@ -154,9 +153,5 @@ def common_pipeline():
 
 
 if __name__ == '__main__':
-    # main()
-
-    # vanile_ddpm()
-    # adaptive_ddpm()
-
-    common_pipeline()
+    main()
+    # common_pipeline()

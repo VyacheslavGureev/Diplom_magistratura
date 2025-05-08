@@ -1,0 +1,22 @@
+Общая команда:
+python -m PyQt5.uic.pyuic filename.ui -o filename.py -x
+
+Моя команда (пример):
+E:\YandexDisk\Another\Diplom_maga\venv\Scripts\python.exe -m PyQt5.uic.pyuic E:\YandexDisk\Another\Diplom_maga\guiui\ui.ui -o E:\YandexDisk\Another\Diplom_maga\guiui\ui.py -x
+
+
+
+E:\YandexDisk\Another\Diplom_maga\venv\Scripts\python.exe -m PyQt5.uic.pyuic E:\YandexDisk\Another\Diplom_maga\guiui\ui.ui -o E:\YandexDisk\Another\Diplom_maga\guiui\ui.py -x
+
+E:\YandexDisk\Another\Diplom_maga\Diplom_magistratura\venv\Scripts\python.exe -m PyQt5.uic.pyuic E:\YandexDisk\Another\Diplom_maga\Diplom_magistratura\guiui\ui.ui -o E:\YandexDisk\Another\Diplom_maga\Diplom_magistratura\guiui\ui.py -x
+
+
+
+
+Как сделать виртуальное окружение:
+	из директории проекта выполнить команду (в терминале):
+		python -m venv venv
+	после создания venv выполнить из директории:
+		venv\Scripts\activate.bat
+	деактивация виртуального окружения:
+		deactivate

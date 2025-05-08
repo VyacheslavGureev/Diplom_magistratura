@@ -1,20 +1,32 @@
-from PyQt5.QtCore import QObject, pyqtSignal
+from PyQt5.QtCore import QObject, pyqtSignal, QThread
 # from services.event_bus import EventBus
 from models.main_model import MainModel
+
+import torch
+
+import models.dataset_creator as dc
+import models.hyperparams as hyperparams
+import models.manager as manager
+import models.diffusion_processes as diff_proc
+import models.utils as utils
+import models.model_adaptive as model_adaptive
+import models.model_ddpm as model_ddpm
 
 
 class MainViewModel(QObject):
     signal_button_status = pyqtSignal(bool, bool)
     signal_open_save_txt_dial = pyqtSignal()
     signal_open_save_img_dial = pyqtSignal()
-    signal_open_load_img_dial = pyqtSignal()
+    signal_open_load_img_dial = pyqtSignal(str, bool)
     signal_txt_save_status = pyqtSignal(str, str)
     signal_img_save_status = pyqtSignal(str, str)
+    signal_progress = pyqtSignal(int)
 
     def __init__(self, model: MainModel):
         super().__init__()
 
         self.model = model
+        self.init_nn_models()
         self.subscribe_to_model()
 
         self.text_data = None
@@ -53,13 +65,59 @@ class MainViewModel(QObject):
     def save_img_to_file(self, file_path, file_format):
         self.model.save_img_to_file(file_path, file_format, self.pixmap_data)
 
-    def request_gen_img(self):
-        # self.signal_open_load_img_dial.emit()
-
-        self.model.gen_img(self.text_data)
-
     def return_txt_save_status(self, status_txt, msg):
         self.signal_txt_save_status.emit(status_txt, msg)
 
     def return_img_save_status(self, status_txt, msg):
         self.signal_img_save_status.emit(status_txt, msg)
+
+    def select_nn_model(self, id):
+        self.model.curr_used_nn_model = id
+
+    def init_nn_models(self):
+        utils.set_seed(42)  # Чтобы модели и процессы были стабильными и предсказуемыми, а эксперименты воспроизводимыми
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        for id in range(len(self.model.config)):
+            self.model.config[id]['device'] = device
+
+    # функция-прокладка во viewmodel для запроса ещё более низкоуровневой информации
+    def request_gen_img(self):
+        model = None
+        sheduler = None
+        ed = None
+        config = self.model.config[self.model.curr_used_nn_model]
+        if self.model.ready_models.get(self.model.curr_used_nn_model, None) == None:
+            # config = self.model.config[self.model.curr_used_nn_model]
+            model_cls = self.model.model_registry[config["model_type"]]  # Получаем тип модели для текущего эксперимента
+            model = model_cls.from_config(
+                config)  # Создание объекта класса с абстракцией от конкретной сигнатуры инициализации
+            model.setup_from_config(config)
+            model.signal_progress.connect(self.signal_progress)
+            model.task_done.connect(self.on_result_ready)  # Обработка результата
+
+            thread = QThread()  # Создаем поток
+            model.moveToThread(thread)  # Перемещаем в поток
+            thread.start()  # Запускаем поток
+
+            sheduler = diff_proc.NoiseShedulerAdapt(hyperparams.T, 'linear',
+                                                    config[
+                                                        'device'])  # Этот класс более универсальный, поэтому можно его использовать для всех моделей
+            ds_cls = self.model.dataset_registry[config["dataset_type"]]
+            ed = ds_cls().load_or_create(config)
+            self.model.ready_models[self.model.curr_used_nn_model] = {'model': model, 'sheduler': sheduler, 'ed': ed,
+                                                                      'is_weight_loaded': False}
+        else:
+            model = self.model.ready_models[self.model.curr_used_nn_model]['model']
+            sheduler = self.model.ready_models[self.model.curr_used_nn_model]['sheduler']
+            ed = self.model.ready_models[self.model.curr_used_nn_model]['ed']
+        if not self.model.ready_models[self.model.curr_used_nn_model]['is_weight_loaded']:
+            model.load_my_model_in_middle_train(config["model_dir"], config["model_file"])
+            self.model.ready_models[self.model.curr_used_nn_model]['is_weight_loaded'] = True
+            print('Загрузка завершена!')
+        model.start_task.emit(self.text_data, sheduler, ed)
+        self.signal_button_status.emit(True,
+                                       False)  # блокируем кнопку, чтобы избежать повторного нажатия во время выполнения задачи
+
+    def on_result_ready(self, img, filepath):
+        self.signal_open_load_img_dial.emit(filepath, False)
+        self.signal_button_status.emit(True, True)
