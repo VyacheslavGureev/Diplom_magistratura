@@ -31,6 +31,6 @@ E_LOADER_ADAPT = 'e_loader_adapt.pkl'
 # --- Гиперпараметры для дебага ---
 # OGRANICHITEL = True
 OGRANICHITEL = False
-N_OGRANICHITEL = 1000
+N_OGRANICHITEL = 2000
 
 # VIZ_STEP = True

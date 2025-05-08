@@ -129,7 +129,7 @@ class EncapsulatedModel(ModelInOnePlace):
                     nn.init.zeros_(module.bias)
 
     def training_model(self, e_loader, sheduler):
-        steplr = StepLR(self.optimizer, step_size=1000, gamma=0.8)
+        # steplr = StepLR(self.optimizer, step_size=1000, gamma=0.8)
         print("Тренировка")
         train_loader = e_loader.train
         self.model.train()  # Включаем режим обучения
