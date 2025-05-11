@@ -1,4 +1,5 @@
 import sys
+import threading
 
 from PyQt5 import QtWidgets
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton, QApplication
@@ -29,6 +30,19 @@ def main():
     # Отображаем главное окно
     common_obj.main_view.show()
     sys.exit(app.exec_())
+    # thread_func()
+
+
+# def thread_func():
+#     print("Поток запущен")
+#     device = torch.device("cuda:0")
+#     torch.tensor([1.0], device=device)
+#     print("Успешно создали тензор на CUDA")
+#
+# t = threading.Thread(target=thread_func)
+# t.start()
+# t.join()
+
 
 
 def common_pipeline():

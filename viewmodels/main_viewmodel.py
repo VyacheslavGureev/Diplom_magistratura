@@ -3,7 +3,7 @@ from PyQt5.QtCore import QObject, pyqtSignal, QThread
 from models.main_model import MainModel
 
 import torch
-
+import time
 import models.dataset_creator as dc
 import models.hyperparams as hyperparams
 import models.manager as manager
@@ -21,6 +21,7 @@ class MainViewModel(QObject):
     signal_txt_save_status = pyqtSignal(str, str)
     signal_img_save_status = pyqtSignal(str, str)
     signal_progress = pyqtSignal(int)
+    signal_mute_radio_btn = pyqtSignal(bool)
 
     def __init__(self, model: MainModel):
         super().__init__()
@@ -31,6 +32,7 @@ class MainViewModel(QObject):
 
         self.text_data = None
         self.pixmap_data = None
+        self.threads = {}
 
     def subscribe_to_model(self):
         self.model.signal_txt_save_status.connect(self.return_txt_save_status)
@@ -82,42 +84,40 @@ class MainViewModel(QObject):
 
     # функция-прокладка во viewmodel для запроса ещё более низкоуровневой информации
     def request_gen_img(self):
-        model = None
-        sheduler = None
-        ed = None
         config = self.model.config[self.model.curr_used_nn_model]
         if self.model.ready_models.get(self.model.curr_used_nn_model, None) == None:
-            # config = self.model.config[self.model.curr_used_nn_model]
             model_cls = self.model.model_registry[config["model_type"]]  # Получаем тип модели для текущего эксперимента
-            model = model_cls.from_config(
-                config)  # Создание объекта класса с абстракцией от конкретной сигнатуры инициализации
-            model.setup_from_config(config)
-            model.signal_progress.connect(self.signal_progress)
-            model.task_done.connect(self.on_result_ready)  # Обработка результата
-
-            thread = QThread()  # Создаем поток
-            model.moveToThread(thread)  # Перемещаем в поток
-            thread.start()  # Запускаем поток
-
-            sheduler = diff_proc.NoiseShedulerAdapt(hyperparams.T, 'linear',
-                                                    config[
-                                                        'device'])  # Этот класс более универсальный, поэтому можно его использовать для всех моделей
             ds_cls = self.model.dataset_registry[config["dataset_type"]]
-            ed = ds_cls().load_or_create(config)
-            self.model.ready_models[self.model.curr_used_nn_model] = {'model': model, 'sheduler': sheduler, 'ed': ed,
-                                                                      'is_weight_loaded': False}
+            thread = QThread()
+            model_builder = model_ddpm.ModelBuilder(model_cls, config, (hyperparams.T, 'linear',
+                                                                        config[
+                                                                            'device']), ds_cls)
+            model_builder.moveToThread(thread)
+            model_builder.data_ready.connect(self.new_model_created)
+            thread.started.connect(model_builder.build_model)
+            self.threads[self.model.curr_used_nn_model] = [thread,
+                                                           model_builder]  # Сохраняем ссылки на потоки и билдеры, чтобы поток был не уничтожен сборщиком
+            thread.start()
         else:
             model = self.model.ready_models[self.model.curr_used_nn_model]['model']
             sheduler = self.model.ready_models[self.model.curr_used_nn_model]['sheduler']
             ed = self.model.ready_models[self.model.curr_used_nn_model]['ed']
-        if not self.model.ready_models[self.model.curr_used_nn_model]['is_weight_loaded']:
-            model.load_my_model_in_middle_train(config["model_dir"], config["model_file"])
-            self.model.ready_models[self.model.curr_used_nn_model]['is_weight_loaded'] = True
-            print('Загрузка завершена!')
-        model.start_task.emit(self.text_data, sheduler, ed)
-        self.signal_button_status.emit(True,
-                                       False)  # блокируем кнопку, чтобы избежать повторного нажатия во время выполнения задачи
+            self.gen_image(model, sheduler, ed)
 
     def on_result_ready(self, img, filepath):
         self.signal_open_load_img_dial.emit(filepath, False)
         self.signal_button_status.emit(True, True)
+        self.signal_mute_radio_btn.emit(False)
+
+    # Регистрируем новую нейронную модель в нашей модели приложения
+    def new_model_created(self, model, sheduler, ed):
+        model.signal_progress.connect(self.signal_progress)
+        model.task_done.connect(self.on_result_ready)  # Обработка результата
+        self.model.ready_models[self.model.curr_used_nn_model] = {'model': model, 'sheduler': sheduler, 'ed': ed}
+        self.gen_image(model, sheduler, ed)
+
+    def gen_image(self, model, sheduler, ed):
+        model.start_task.emit(self.text_data, sheduler, ed)
+        self.signal_button_status.emit(True,
+                                       False)  # блокируем кнопку, чтобы избежать повторного нажатия во время выполнения задачи
+        self.signal_mute_radio_btn.emit(True)

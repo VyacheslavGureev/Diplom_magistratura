@@ -26,7 +26,6 @@ class MainModel(QObject):
         # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # Реализация через регистрацию моделей и общий конфиг (с класс-методом внутри каждого класса модели).
         # Подход максимального ООП - отсутствие if-ов
-        self.model_manager = manager.ModelManager()
         self.ready_models = {}
         self.dataset_registry = {
             "mnist": dc.DatasetMNIST,
@@ -76,9 +75,9 @@ class MainModel(QObject):
         else:
             self.signal_img_save_status.emit("Успех!", f"Изображение успешно сохранено!")
 
-    def gen_img(self, txt):
-
-        print(txt)
+    # def gen_img(self, txt):
+    #
+    #     print(txt)
 
         # print('gen', txt)
 

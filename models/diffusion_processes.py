@@ -1,4 +1,5 @@
 import torch
+from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
 import torchvision.utils as vutils
 import numpy as np
 import imageio
@@ -10,6 +11,7 @@ import models.hyperparams as hyperparams
 
 class NoiseSheduler():
     def __init__(self, T, type, device):
+        # super().__init__()
         # Обычно bt возрастает, at убывает, at_bar убывает быстро
         self.device = device
         self.T = T

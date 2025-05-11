@@ -22,7 +22,32 @@ import models.diffusion_processes as diff_proc
 import models.dataset_creator as dc
 
 
-# TODO: Предварительно всё правильно
+# Из-за особенностей работы pytorch и cuda, нужно создавать объект с тяжёлым кодом в одном потоке
+# Для этого применяем фабрику - паттерн, где с помощью вспомогательного класса создаём объект
+# Общение между объектами с их методами из других потоков осуществляем только с помощью сигналов
+class ModelBuilder(QObject):
+    data_ready = pyqtSignal(object, object, object)
+
+    def __init__(self, model_class, config, sheduler_tuple, dataset_class):
+        super().__init__()
+        self.model_class = model_class
+        self.config = config
+        self.T = sheduler_tuple[0]
+        self.type = sheduler_tuple[1]
+        self.device = sheduler_tuple[2]
+        self.dataset_class = dataset_class
+
+    @pyqtSlot()
+    def build_model(self):
+        model = self.model_class.from_config(
+            self.config)  # Создание объекта класса с абстракцией от конкретной сигнатуры инициализации
+        model.setup_from_config(self.config)
+        model.load_my_model_in_middle_train(self.config["model_dir"], self.config["model_file"])
+        print('Загрузка завершена!')
+        sheduler = diff_proc.NoiseShedulerAdapt(self.T, self.type, self.device)
+        ed = self.dataset_class().load_or_create(self.config)
+        self.data_ready.emit(model, sheduler, ed)
+
 
 # Данные про модель в одном месте. Решение в стиле "тяжёлого" ООП, через setup
 # Базовый класс

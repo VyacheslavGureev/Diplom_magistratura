@@ -56,6 +56,7 @@ class MainView(QMainWindow):
         self.viewmodel.signal_img_save_status.connect(self.show_save_status)
         self.viewmodel.signal_open_load_img_dial.connect(self.open_load_img_dial)
         self.viewmodel.signal_progress.connect(self.display_progress)
+        self.viewmodel.signal_mute_radio_btn.connect(self.swing_radio_btn)
 
     def buttons_status_show(self, btn_txt, btn_gen):
         self.ui.pushButtonTxtSave.setEnabled(btn_txt)
@@ -132,3 +133,7 @@ class MainView(QMainWindow):
 
     def display_progress(self, progress):
         self.ui.progressBarGen.setValue(progress)
+
+    def swing_radio_btn(self, muted):
+        self.ui.radioButtonDDPM.setEnabled(not muted)
+        self.ui.radioButtonDDPMAdapt.setEnabled(not muted)
