@@ -161,10 +161,10 @@ class ImageTextDataset(Dataset):
         return image, text_emb_reduced, attention_mask
 
 
-def get_text_emb(text):
-    tokenizer = utils.load_data_from_file('datas/embedders/tokenizer.pkl')
-    text_encoder = utils.load_data_from_file('datas/embedders/text_encoder.pkl')
-    tokens = tokenizer(
+def get_text_emb(text, tok, txt_enc):
+    # tokenizer = utils.load_data_from_file('datas/embedders/tokenizer.pkl')
+    # text_encoder = utils.load_data_from_file('datas/embedders/text_encoder.pkl')
+    tokens = tok(
         text,
         return_tensors="pt",
         padding="max_length",  # Делаем паддинг до max_length
@@ -173,7 +173,7 @@ def get_text_emb(text):
     )
     attention_mask = tokens['attention_mask'].squeeze(0)  # (max_length,)
     with torch.no_grad():
-        text_emb_reduced = text_encoder(**tokens).last_hidden_state.squeeze(0)  # (max_length, txt_emb_dim)
+        text_emb_reduced = txt_enc(**tokens).last_hidden_state.squeeze(0)  # (max_length, txt_emb_dim)
     return text_emb_reduced, attention_mask
 
 

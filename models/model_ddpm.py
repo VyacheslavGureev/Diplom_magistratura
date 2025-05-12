@@ -135,6 +135,9 @@ class EncapsulatedModel(ModelInOnePlace):
         self.criterion = nn.MSELoss()
         # self.model.apply(self.init_weights)
 
+        self.tokenizer = utils.load_data_from_file('datas/embedders/tokenizer.pkl')
+        self.text_encoder = utils.load_data_from_file('datas/embedders/text_encoder.pkl')
+
     def initialize_weights_stable(self, model):
         """
             Применяет максимально универсальную инициализацию весов:
@@ -305,14 +308,14 @@ class EncapsulatedModel(ModelInOnePlace):
                                                       'val_loss': math.inf}})  # Если модель была обучена, но во время её обучения ещё не был реализован функционал сохранения истории обучения
 
     def get_img_from_text(self, text, sheduler, **kwargs):
-        text_embs, masks = dc.get_text_emb(text)
+        text_embs, masks = dc.get_text_emb(text, self.tokenizer, self.text_encoder)
         # Повторяем тензоры, чтобы размерность по батчам совпадала
         text_emb_batch = text_embs.unsqueeze(0).expand(hyperparams.BATCH_SIZE, -1, -1)  # (B, tokens, text_emb_dim)
         mask_batch = masks.unsqueeze(0).expand(hyperparams.BATCH_SIZE, -1)  # (B, tokens)
         mask_batch = mask_batch.to(self.device)
         text_emb_batch = text_emb_batch.to(self.device)
-        img = self.reverse_diffusion(text_emb_batch, mask_batch, sheduler)
-        return img
+        img, filepath = self.reverse_diffusion(text_emb_batch, mask_batch, sheduler)
+        return img, filepath
 
     def reverse_diffusion(self, text_embedding, attn_mask, sheduler):
         # Инициализация случайного шума (начало процесса)

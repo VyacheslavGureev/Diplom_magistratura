@@ -11,6 +11,9 @@ from torch.utils.data import random_split, DataLoader
 import pickle
 import os
 import torch
+from torchvision.utils import make_grid
+from torchvision import datasets, transforms
+from torchmetrics.image.fid import FrechetInceptionDistance
 import random
 import numpy as np
 from transformers import CLIPTokenizer, CLIPTextModel
@@ -30,18 +33,8 @@ def main():
     # Отображаем главное окно
     common_obj.main_view.show()
     sys.exit(app.exec_())
-    # thread_func()
 
 
-# def thread_func():
-#     print("Поток запущен")
-#     device = torch.device("cuda:0")
-#     torch.tensor([1.0], device=device)
-#     print("Успешно создали тензор на CUDA")
-#
-# t = threading.Thread(target=thread_func)
-# t.start()
-# t.join()
 
 
 
@@ -114,7 +107,72 @@ def common_pipeline():
         # text = "На изображении семерка"
         # text = "Нарисована цифра восемь"
         # text = "Рукописная девятка"
-        i = model.get_img_from_text(text, sheduler, ed=ed)
+
+        # Подготовка метрики
+        fid = FrechetInceptionDistance(feature=2048).to(device)  # или .to(device)
+
+        # Добавляем настоящие изображения
+        real_dataset = datasets.MNIST(root='./datas', train=True, download=True,
+                                             transform=transforms.Compose([
+                                                 transforms.Resize(299),  # нужно для InceptionV3
+                                                 transforms.ToTensor(),
+                                                 transforms.Lambda(lambda x: x.repeat(3, 1, 1))  # grayscale -> RGB
+                                             ]))
+
+        TEXT_DESCRIPTIONS = {
+            0: ["Это цифра ноль", "0", "ноль", "нуль"],
+            1: ["Изображена единица", "1", "единица", "один"],
+            2: ["Нарисована цифра два", "2", "два", "двойка"],
+            3: ["На картинке цифра три", "3", "три", "тройка"],
+            4: ["Четыре, написанное от руки", "4", "четыре", "четвёрка"],
+            5: ["Это пятерка", "5", "пять", "пятёрка"],
+            6: ["Цифра шесть, нарисованная от руки", "6", "шесть", "шестёрка"],
+            7: ["На изображении семерка", "7", "семь", "семёрка"],
+            8: ["Нарисована цифра восемь", "8", "восемь", "восьмёрка"],
+            9: ["Рукописная девятка", "9", "девять", "девятка"]
+        }
+        generated_images_adaptive = []
+        i = 0
+        n = 1000
+        for i in range(n):  # или сколько нужно
+            img, label = real_dataset[i]
+            cap = TEXT_DESCRIPTIONS[label][1]
+
+            img = (img.clamp(0, 1) * 255).to(torch.uint8)
+
+            fid.update(img.unsqueeze(0).to(device), real=True)
+            generated_images_adaptive.append((model.get_img_from_text(cap, sheduler, ed=ed))[0][0])
+
+            i+=1
+            print((i/n)*100)
+        i = 0
+        print('генерация завершена')
+        # for i in range(1000):
+        #     generated_images_adaptive.append(model.get_img_from_text(text, sheduler, ed=ed))
+
+        # Добавляем сгенерированные изображения
+        for img_i in range(len(generated_images_adaptive)):  # список из 1000+ тензоров
+            img = generated_images_adaptive[img_i]
+
+            img = (img.clamp(0, 1) * 255).to(torch.uint8)
+
+            img = transforms.Resize(299)(img)
+            img = img.repeat(3, 1, 1)  # grayscale → RGB
+            fid.update(img.unsqueeze(0).to(device), real=False)
+
+            i += 1
+            print((i / n) * 100)
+
+        # Считаем FID
+        print("FID:", fid.compute().item())
+
+
+
+
+
+
+
+        # i = model.get_img_from_text(text, sheduler, ed=ed)
     elif mode == 1:
         pass
     # if mode == 'load_test':
@@ -167,5 +225,5 @@ def common_pipeline():
 
 
 if __name__ == '__main__':
-    main()
-    # common_pipeline()
+    # main()
+    common_pipeline()

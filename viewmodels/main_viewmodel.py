@@ -121,3 +121,4 @@ class MainViewModel(QObject):
         self.signal_button_status.emit(True,
                                        False)  # блокируем кнопку, чтобы избежать повторного нажатия во время выполнения задачи
         self.signal_mute_radio_btn.emit(True)
+
