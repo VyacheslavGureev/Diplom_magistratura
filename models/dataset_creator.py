@@ -265,7 +265,7 @@ class DatasetMNIST(BaseDataset):
         transform = transforms.Compose([
             transforms.Resize((hyperparams.IMG_SIZE, hyperparams.IMG_SIZE)),  # Приводим к IMG_SIZExIMG_SIZE
             transforms.ToTensor(),  # Переводим в тензор (C, H, W)
-            transforms.Normalize(mean=[0.5], std=[0.5])  # Нормализация (один канал)
+            transforms.Normalize(mean=[0.5], std=[0.5])  # Нормализация (один канал) -> приводим к [-1, 1] (было [0, 1] - загрузили такими)
         ])
         tokenizer = utils.load_data_from_file('datas/embedders/tokenizer.pkl')
         text_encoder = utils.load_data_from_file('datas/embedders/text_encoder.pkl')

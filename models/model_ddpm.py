@@ -169,6 +169,7 @@ class EncapsulatedModel(ModelInOnePlace):
                 if hasattr(module, 'bias') and module.bias is not None:
                     nn.init.zeros_(module.bias)
 
+    # Модель обучается на данных, нормализованных к [-1, 1]
     def training_model(self, e_loader, sheduler):
         # steplr = StepLR(self.optimizer, step_size=1000, gamma=0.8)
         print("Тренировка")
@@ -298,6 +299,7 @@ class EncapsulatedModel(ModelInOnePlace):
             # 'decay': ema.decay
         }, model_filepath)
         utils.save_json(unet_config, hyperparams.CONFIGS_DIR + hyperparams.MODEL_CONFIG_DDPM)
+        print('Веса и данные ddpm сохранены!')
 
     def load_my_model_in_middle_train(self, model_dir, model_file):
         model_filepath = model_dir + model_file
@@ -306,6 +308,7 @@ class EncapsulatedModel(ModelInOnePlace):
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.history = checkpoint.get('history', {0: {'train_loss': math.inf,
                                                       'val_loss': math.inf}})  # Если модель была обучена, но во время её обучения ещё не был реализован функционал сохранения истории обучения
+        print('Веса и данные ddpm загружены!')
 
     def get_img_from_text(self, text, sheduler, **kwargs):
         text_embs, masks = dc.get_text_emb(text, self.tokenizer, self.text_encoder)
@@ -355,6 +358,7 @@ class EncapsulatedModel(ModelInOnePlace):
                 #     x_t += noise
                 if i % 20 == 0:
                     # hyperparams.VIZ_STEP = True
+                    # этот модуль выполняет нормализацию по максимуму!
                     vutils.save_image(x_t, f"trained/denoising/step_{step}.png", normalize=True)
                 i += 1
         images = []
@@ -364,4 +368,10 @@ class EncapsulatedModel(ModelInOnePlace):
         imageio.mimsave("trained/denoising/denoising_process.gif", images, duration=0.3)  # 0.3 секунды на кадр
         self.signal_progress.emit(0)
         vutils.save_image(x_t, f"trained/denoising/denoised_result.png", normalize=True)
+        x_t = self.custom_normalize(x_t) # перевод в исходный диапазон - [0, 1]
         return x_t, "trained/denoising/denoised_result.png"
+
+    def custom_normalize(self, tensor):
+        tensor_min = tensor.min()
+        tensor_max = tensor.max()
+        return (tensor - tensor_min) / (tensor_max - tensor_min)

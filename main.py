@@ -7,13 +7,16 @@ from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton, QApplication
 from services.navigation_service import CommonObject
 
 from torch.utils.data import random_split, DataLoader
+import matplotlib.pyplot as plt
 
 import pickle
 import os
 import torch
+import lpips
 from torchvision.utils import make_grid
 from torchvision import datasets, transforms
 from torchmetrics.image.fid import FrechetInceptionDistance
+import torch.nn.functional as F
 import random
 import numpy as np
 from transformers import CLIPTokenizer, CLIPTextModel
@@ -54,7 +57,7 @@ def common_pipeline():
             "adaptive": model_adaptive.EncapsulatedModelAdaptive,
         }
     # Конфиг эксперимента
-    config = {
+    config_ddpm = {
         "model_type": "ddpm",
         # "model_type": "adaptive",
         "dataset_type": "mnist",
@@ -74,43 +77,170 @@ def common_pipeline():
         "model_dir": hyperparams.MODELS_DIR,
         "device": device,
     }
-    model_cls = model_registry[config["model_type"]]  # Получаем тип модели для текущего эксперимента
-    # Каждая модель сама знает, какие поля конфига ей нужно взять для своей инициализации (делегирование)
-    model = model_cls.from_config(config)  # Создание объекта класса с абстракцией от конкретной сигнатуры инициализации
-    model.setup_from_config(config)
+    # Конфиг эксперимента
+    config_adapt = {
+        # "model_type": "ddpm",
+        "model_type": "adaptive",
+        # "dataset_type": "mnist",
+        "dataset_type": "mnist_descr",
+        # "model_file": hyperparams.MODEL_NAME_DDPM,
+        "model_file": hyperparams.MODEL_NAME_ADAPT,
+        # "e_loader": hyperparams.E_LOADERS_DIR + hyperparams.E_LOADER_DDPM,
+        "e_loader": hyperparams.E_LOADERS_DIR + hyperparams.E_LOADER_ADAPT,
+        # "model_config_file": hyperparams.CONFIGS_DIR + hyperparams.MODEL_CONFIG_DDPM,
+        "model_config_file": hyperparams.CONFIGS_DIR + hyperparams.MODEL_CONFIG_ADAPT,
+
+        # "need_create": True,
+        "need_create": False,
+        # "need_save": True,
+        "need_save": False,
+
+        "model_dir": hyperparams.MODELS_DIR,
+        "device": device,
+    }
     model_manager = manager.ModelManager()
-    sheduler = diff_proc.NoiseShedulerAdapt(hyperparams.T, 'linear',
-                                            device)  # Этот класс более универсальный, поэтому можно его использовать для всех моделей
-    ds_cls = dataset_registry[config["dataset_type"]]
-    ed = ds_cls().load_or_create(config)
+    config_all = {'ddpm': config_ddpm, 'adapt': config_adapt}
+    models = {}
+    for key in config_all.keys():
+        config = config_all[key]
+        model_cls = model_registry[config["model_type"]]  # Получаем тип модели для текущего эксперимента
+        # Каждая модель сама знает, какие поля конфига ей нужно взять для своей инициализации (делегирование)
+        model = model_cls.from_config(config)  # Создание объекта класса с абстракцией от конкретной сигнатуры инициализации
+        model.setup_from_config(config)
+        model.load_my_model_in_middle_train(config["model_dir"], config["model_file"])
+        sheduler = diff_proc.NoiseShedulerAdapt(hyperparams.T, 'linear',
+                                                device)  # Этот класс более универсальный, поэтому можно его использовать для всех моделей
+        ds_cls = dataset_registry[config["dataset_type"]]
+        ed = ds_cls().load_or_create(config)
+        data_dict = {'model': model, 'sheduler': sheduler, 'ed': ed}
+        models[key] = data_dict
 
     shutdown_flag = False
     # mode = 'img'  #
     # mode = 'create_train_test_save'  #
-    mode = 'load_gen'  #
+    # mode = 'load_gen'  #
     # mode = 'load_train_test_save'  #
     # mode = 'debug'  #
+
+    # mode = 'lpips'
+    mode = 'fid'
 
     # mode = 'create_train_save'  #
     # mode = 'load_test'  #
     # mode = 'load_gen'  #
-    if mode == 'load_gen':
-        model.load_my_model_in_middle_train(config["model_dir"], config["model_file"])
-        print('Загрузка завершена!')
-        # text = "Это цифра ноль"
-        # text = "Изображена единица"
-        # text = "Нарисована цифра два"
-        # text = "На картинке цифра три"
-        # text = "Четыре, написанное от руки"
-        text = "8"
-        # text = "Цифра шесть, нарисованная от руки"
-        # text = "На изображении семерка"
-        # text = "Нарисована цифра восемь"
-        # text = "Рукописная девятка"
 
+    TEXT_DESCRIPTIONS = {
+        0: ["Это цифра ноль", "0", "ноль", "нуль"],
+        1: ["Изображена единица", "1", "единица", "один"],
+        2: ["Нарисована цифра два", "2", "два", "двойка"],
+        3: ["На картинке цифра три", "3", "три", "тройка"],
+        4: ["Четыре, написанное от руки", "4", "четыре", "четвёрка"],
+        5: ["Это пятерка", "5", "пять", "пятёрка"],
+        6: ["Цифра шесть, нарисованная от руки", "6", "шесть", "шестёрка"],
+        7: ["На изображении семерка", "7", "семь", "семёрка"],
+        8: ["Нарисована цифра восемь", "8", "восемь", "восьмёрка"],
+        9: ["Рукописная девятка", "9", "девять", "девятка"]
+    }
+    if mode == 'lpips':
+        real_dataset = datasets.MNIST(root='./datas', train=True, download=True,
+                                      transform=transforms.Compose([
+                                          transforms.Resize((hyperparams.IMG_SIZE, hyperparams.IMG_SIZE)),
+                                          transforms.ToTensor(),
+                                          transforms.Lambda(lambda x: x.repeat(3, 1, 1)),  # grayscale -> RGB
+                                          transforms.Normalize(mean=[0.5], std=[0.5])
+                                      ]))
+        # Загружаем LPIPS-модель (например, на основе AlexNet)
+        lpips_model = lpips.LPIPS(net='alex')  # или 'vgg', 'squeeze'
+        lpips_model.to(device)
+        lpips_model.eval()
+        # Примерные тензоры изображений (должны быть [B, 3, H, W], значения в [-1, 1])
+        # Преобразуем grayscale в RGB, если MNIST или fMNIST
+        real = []
+        ddpm = []
+        ddpm_ad = []
+        i = 0
+        n = 100
+        for i in range(n):
+            img, label = real_dataset[i]
+            cap = TEXT_DESCRIPTIONS[label][1]
+            img = img.unsqueeze(0)
+            img = img.to(device)
+            real.append(img)
+
+            model = models['ddpm']['model']
+            sheduler = models['ddpm']['sheduler']
+            ed = models['ddpm']['ed']
+            img, _ = model.get_img_from_text(cap, sheduler, ed=ed)
+            img = img[0]
+            img = img.repeat(3, 1, 1)
+            img = img.unsqueeze(0) * 2 - 1
+            ddpm.append(img)
+
+            model = models['adapt']['model']
+            sheduler = models['adapt']['sheduler']
+            ed = models['adapt']['ed']
+            img, _ = model.get_img_from_text(cap, sheduler, ed=ed)
+            img = img[0]
+            img = img.repeat(3, 1, 1)
+            img = img.unsqueeze(0) * 2 - 1
+            ddpm_ad.append(img)
+
+            i += 1
+            print((i / n) * 100)
+        i = 0
+        print('генерация завершена')
+
+        # def to_rgb(img):
+        #     return img.repeat(3, 1, 1) if img.shape[0] == 1 else img
+
+        dist_real_base = []
+        dist_real_adapt = []
+        dist_models = []
+
+        # Вычислить LPIPS
+        with torch.no_grad():
+            for i in range(n):
+                dist = lpips_model(real[i], ddpm[i])
+                dist = dist.squeeze()
+                dist = dist.cpu().detach().numpy()
+                dist = float(dist)
+                dist_real_base.append(dist)
+                print(f"LPIPS r-b: {dist:.4f}")
+
+                dist = lpips_model(real[i], ddpm_ad[i])
+                dist = dist.squeeze()
+                dist = dist.cpu().detach().numpy()
+                dist = float(dist)
+                dist_real_adapt.append(dist)
+                print(f"LPIPS r-a: {dist:.4f}")
+
+                dist = lpips_model(ddpm[i], ddpm_ad[i])
+                dist = dist.squeeze()
+                dist = dist.cpu().detach().numpy()
+                dist = float(dist)
+                dist_models.append(dist)
+                print(f"LPIPS m: {dist:.4f}")
+        print('сравнение завершено')
+        # График
+        plt.figure(figsize=(12, 6))
+        plt.plot(dist_real_base, label='LPIPS(Real, DDPM)', color='blue')
+        plt.plot(dist_real_adapt, label='LPIPS(Real, Adapt)', color='green')
+        plt.plot(dist_models, label='LPIPS(DDPM, Adapt)', color='red')
+        plt.xlabel('Image Index')
+        plt.ylabel('LPIPS Distance')
+        plt.title('Сравнение генераций по LPIPS')
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig("lpips_comparison.png", dpi=300)
+        plt.show()
+        print('график построен')
+
+    elif mode == 'load_gen':
+        pass
+    elif mode == 'fid':
         # Подготовка метрики
         fid = FrechetInceptionDistance(feature=2048).to(device)  # или .to(device)
-
         # Добавляем настоящие изображения
         real_dataset = datasets.MNIST(root='./datas', train=True, download=True,
                                              transform=transforms.Compose([
@@ -118,51 +248,34 @@ def common_pipeline():
                                                  transforms.ToTensor(),
                                                  transforms.Lambda(lambda x: x.repeat(3, 1, 1))  # grayscale -> RGB
                                              ]))
-
-        TEXT_DESCRIPTIONS = {
-            0: ["Это цифра ноль", "0", "ноль", "нуль"],
-            1: ["Изображена единица", "1", "единица", "один"],
-            2: ["Нарисована цифра два", "2", "два", "двойка"],
-            3: ["На картинке цифра три", "3", "три", "тройка"],
-            4: ["Четыре, написанное от руки", "4", "четыре", "четвёрка"],
-            5: ["Это пятерка", "5", "пять", "пятёрка"],
-            6: ["Цифра шесть, нарисованная от руки", "6", "шесть", "шестёрка"],
-            7: ["На изображении семерка", "7", "семь", "семёрка"],
-            8: ["Нарисована цифра восемь", "8", "восемь", "восьмёрка"],
-            9: ["Рукописная девятка", "9", "девять", "девятка"]
-        }
-        generated_images_adaptive = []
-        i = 0
-        n = 1000
+        n = 100
         for i in range(n):  # или сколько нужно
             img, label = real_dataset[i]
             cap = TEXT_DESCRIPTIONS[label][1]
+            img = img.unsqueeze(0)
+            img = img.clamp(0, 1)  # на всякий случай
+            img = (img * 255.0).round()  # теперь в [0, 255] с округлением
+            img = img.to(torch.uint8)  # перевод в uint8
+            fid.update(img.to(device), real=True)
 
-            img = (img.clamp(0, 1) * 255).to(torch.uint8)
-
-            fid.update(img.unsqueeze(0).to(device), real=True)
-            generated_images_adaptive.append((model.get_img_from_text(cap, sheduler, ed=ed))[0][0])
-
-            i+=1
-            print((i/n)*100)
-        i = 0
-        print('генерация завершена')
-        # for i in range(1000):
-        #     generated_images_adaptive.append(model.get_img_from_text(text, sheduler, ed=ed))
-
-        # Добавляем сгенерированные изображения
-        for img_i in range(len(generated_images_adaptive)):  # список из 1000+ тензоров
-            img = generated_images_adaptive[img_i]
-
-            img = (img.clamp(0, 1) * 255).to(torch.uint8)
-
+            # model = models['ddpm']['model']
+            # sheduler = models['ddpm']['sheduler']
+            # ed = models['ddpm']['ed']
+            model = models['adapt']['model']
+            sheduler = models['adapt']['sheduler']
+            ed = models['adapt']['ed']
+            img, _ = model.get_img_from_text(cap, sheduler, ed=ed)
+            img = img.repeat(1, 3, 1, 1)
+            img = img[0]
             img = transforms.Resize(299)(img)
-            img = img.repeat(3, 1, 1)  # grayscale → RGB
-            fid.update(img.unsqueeze(0).to(device), real=False)
-
-            i += 1
-            print((i / n) * 100)
-
+            # img = F.interpolate(img, size=(299, 299), mode='bilinear', align_corners=False)
+            img = img.unsqueeze(0)
+            img = img.clamp(0, 1)  # на всякий случай
+            img = (img * 255.0).round()  # теперь в [0, 255] с округлением
+            img = img.to(torch.uint8)  # перевод в uint8
+            fid.update(img.to(device), real=False)
+            print((i/n)*100)
+        print('генерация завершена')
         # Считаем FID
         print("FID:", fid.compute().item())
 

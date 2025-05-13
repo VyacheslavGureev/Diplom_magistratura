@@ -85,6 +85,8 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
         # self.criterion = adapt_loss
         self.criterion = nn.MSELoss()
         # self.model.apply(self.init_weights)
+        self.tokenizer = utils.load_data_from_file('datas/embedders/tokenizer.pkl')
+        self.text_encoder = utils.load_data_from_file('datas/embedders/text_encoder.pkl')
 
     # def init_weights(self, m):
     #     if isinstance(m, (nn.Conv2d, nn.Linear, nn.ConvTranspose2d)):
@@ -120,6 +122,7 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
     #         if m.bias is not None:
     #             nn.init.constant_(m.bias, 0.0)
 
+    # Модель обучается на данных, нормализованных к [-1, 1]
     # Пример делигирования функции тренировки объекту модели
     # Это Visitor-like подход, корректный с точки зрения ООП
     def training_model(self, e_loader, sheduler):
@@ -291,6 +294,7 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
             # 'decay': ema.decay
         }, model_filepath)
         utils.save_json(model_config, hyperparams.CONFIGS_DIR + hyperparams.MODEL_CONFIG_ADAPT)
+        print('Веса и данные ddpm adaptive сохранены!')
 
     # Загрузка
     def load_my_model_in_middle_train(self, model_dir, model_file):
@@ -300,6 +304,8 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.history = checkpoint.get('history', {0: {'train_loss': math.inf,
                                                       'val_loss': math.inf}})  # Если модель была обучена, но во время её обучения ещё не был реализован функционал сохранения истории обучения
+        print('Веса и данные ddpm adaptive загружены!')
+
 
     # Функция для reverse diffusion
     def reverse_diffusion(self, text_embedding, attn_mask, sheduler, text_descr_loader):
@@ -340,6 +346,7 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
                 #     x_t += noise
                 if i % 20 == 0:
                     # hyperparams.VIZ_STEP = True
+                    # этот модуль выполняет нормализацию по максимуму!
                     vutils.save_image(x_t, f"trained/denoising_adapt/step_{step}.png", normalize=True)
                 i += 1
         images = []
@@ -349,15 +356,21 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
         imageio.mimsave("trained/denoising_adapt/denoising_process.gif", images, duration=0.3)  # 0.3 секунды на кадр
         self.signal_progress.emit(0)
         vutils.save_image(x_t, f"trained/denoising_adapt/denoised_result.png", normalize=True)
+        x_t = self.custom_normalize(x_t) # перевод в исходный диапазон - [0, 1]
         return x_t, "trained/denoising_adapt/denoised_result.png"
+
+    def custom_normalize(self, tensor):
+        tensor_min = tensor.min()
+        tensor_max = tensor.max()
+        return (tensor - tensor_min) / (tensor_max - tensor_min)
 
     def get_img_from_text(self, text, sheduler, **kwargs):
         ed = kwargs['ed']
         text_descr_loader = ed.text_descr
-        text_embs, masks = dc.get_text_emb(text)
+        text_embs, masks = dc.get_text_emb(text, self.tokenizer, self.text_encoder)
         # Повторяем тензоры, чтобы размерность по батчам совпадала
         text_emb_batch = text_embs.unsqueeze(0).expand(hyperparams.BATCH_SIZE, -1, -1)  # (B, tokens, text_emb_dim)
         mask_batch = masks.unsqueeze(0).expand(hyperparams.BATCH_SIZE, -1)  # (B, tokens)
         text_emb_batch, mask_batch = text_emb_batch.to(self.device), mask_batch.to(self.device)
-        img = self.reverse_diffusion(text_emb_batch, mask_batch, sheduler, text_descr_loader)
-        return img
+        img, filepath = self.reverse_diffusion(text_emb_batch, mask_batch, sheduler, text_descr_loader)
+        return img, filepath
