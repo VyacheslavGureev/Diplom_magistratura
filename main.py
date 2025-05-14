@@ -3,6 +3,7 @@ import threading
 
 from PyQt5 import QtWidgets
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton, QApplication
+from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
 
 from services.navigation_service import CommonObject
 
@@ -123,7 +124,9 @@ def common_pipeline():
     # mode = 'debug'  #
 
     # mode = 'lpips'
-    mode = 'fid'
+    # mode = 'fid'
+    mode = 'psnr_ssim'
+    # mode = 'ssim'
 
     # mode = 'create_train_save'  #
     # mode = 'load_test'  #
@@ -141,7 +144,79 @@ def common_pipeline():
         8: ["Нарисована цифра восемь", "8", "восемь", "восьмёрка"],
         9: ["Рукописная девятка", "9", "девять", "девятка"]
     }
-    if mode == 'lpips':
+    if mode == 'psnr_ssim':
+        # Метрики
+        psnr = PeakSignalNoiseRatio().to(device)
+        ssim = StructuralSimilarityIndexMeasure(data_range=1.0).to(device)
+        # Тестовый датасет
+        dataset = datasets.MNIST(root='./datas', train=True, download=True,
+                                 transform=transforms.Compose([
+                                     transforms.Resize(32),
+                                     transforms.ToTensor()
+                                 ]))
+        real_scores = []
+        ddpm_scores = []
+        adapt_scores = []
+        n = 100
+        for i in range(n):
+            img, label = dataset[i]
+            cap = TEXT_DESCRIPTIONS[label][1]
+            real = img.to(device).unsqueeze(0)  # [1,1,32,32]
+            # Получение изображения от обычной ddpm
+            gen_ddpm, _ = models['ddpm']['model'].get_img_from_text(cap,
+                                                                    models['ddpm']['sheduler'],
+                                                                    ed=models['ddpm']['ed'])
+            gen_ddpm = gen_ddpm.clamp(0, 1)  # на всякий случай (хотя значение уже нормализовано в диап. [0, 1])
+            gen_ddpm = gen_ddpm[0:1]
+            # Получение изображения от адаптивной
+            gen_adapt, _ = models['adapt']['model'].get_img_from_text(cap,
+                                                                      models['adapt']['sheduler'],
+                                                                      ed=models['adapt']['ed'])
+            gen_adapt = gen_adapt.clamp(0, 1)
+            gen_adapt = gen_adapt[0:1]
+
+            # PSNR и SSIM
+            psnr_ddpm = psnr(gen_ddpm, real).item()
+            ssim_ddpm = ssim(gen_ddpm, real).item()
+
+            psnr_adapt = psnr(gen_adapt, real).item()
+            ssim_adapt = ssim(gen_adapt, real).item()
+
+            ddpm_scores.append((psnr_ddpm, ssim_ddpm))
+            adapt_scores.append((psnr_adapt, ssim_adapt))
+
+            print(((i + 1)/n)*100)
+
+        # Отдельно по метрикам
+        psnr_ddpm_all, ssim_ddpm_all = zip(*ddpm_scores)
+        psnr_adapt_all, ssim_adapt_all = zip(*adapt_scores)
+        print("\n--- Средние значения ---")
+        print(
+            f"DDPM: PSNR={sum(psnr_ddpm_all) / len(psnr_ddpm_all):.4f}, SSIM={sum(ssim_ddpm_all) / len(ssim_ddpm_all):.4f}")
+        print(
+            f"Adapt: PSNR={sum(psnr_adapt_all) / len(psnr_adapt_all):.4f}, SSIM={sum(ssim_adapt_all) / len(ssim_adapt_all):.4f}")
+
+        x = list(range(n))
+        plt.figure(figsize=(12, 5))
+        plt.subplot(1, 2, 1)
+        plt.plot(x, psnr_ddpm_all, label='DDPM PSNR', color='blue')
+        plt.plot(x, psnr_adapt_all, label='Adapt PSNR', color='green')
+        plt.xlabel("Изображение #")
+        plt.ylabel("PSNR (dB)")
+        plt.legend()
+        plt.grid(True)
+        plt.subplot(1, 2, 2)
+        plt.plot(x, ssim_ddpm_all, label='DDPM SSIM', color='blue')
+        plt.plot(x, ssim_adapt_all, label='Adapt SSIM', color='green')
+        plt.xlabel("Изображение #")
+        plt.ylabel("SSIM")
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig("psnr_ssim_comparison.png", dpi=300)
+        plt.show()
+
+    elif mode == 'lpips':
         real_dataset = datasets.MNIST(root='./datas', train=True, download=True,
                                       transform=transforms.Compose([
                                           transforms.Resize((hyperparams.IMG_SIZE, hyperparams.IMG_SIZE)),
