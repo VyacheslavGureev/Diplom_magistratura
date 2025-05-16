@@ -1,15 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchviz import make_dot
-import models.hyperparams as HP
 
 
+# Возвращает GroupNorm с автоматически подобранным числом групп
 def get_auto_groupnorm(num_channels: int, max_groups: int = 32) -> nn.GroupNorm:
-    """
-    Возвращает GroupNorm с автоматически подобранным числом групп.
-    max_groups — максимальное допустимое количество групп.
-    """
     for num_groups in reversed(range(1, max_groups + 1)):
         if num_channels % num_groups == 0:
             return nn.GroupNorm(num_groups=num_groups, num_channels=num_channels, affine=True)
@@ -17,7 +12,6 @@ def get_auto_groupnorm(num_channels: int, max_groups: int = 32) -> nn.GroupNorm:
     return nn.GroupNorm(num_groups=1, num_channels=num_channels, affine=True)
 
 
-# TODO: Всё правильно и проверено
 class CrossAttentionMultiHead(nn.Module):
     def __init__(self, text_dim, img_dim, num_heads=4, dropout=0.1):
         super().__init__()
@@ -52,7 +46,6 @@ class CrossAttentionMultiHead(nn.Module):
         attn = attn.softmax(dim=-1)
         attn = self.dropout(attn)
         out = (attn @ v).transpose(1, 2).reshape(B, H * W, C)
-        # out = x_flat + 1.0 * out  # Малый вес для стабильности (0,5 пока подходит)
         out = out.permute(0, 2, 1).view(B, C, H, W)
         return out
 
@@ -107,7 +100,6 @@ class TimeEmbedding(nn.Module):
 class ResNetBlock(nn.Module):
     def __init__(self, in_channels, out_channels, time_emb_dim, batch_size):
         super().__init__()
-        # self.initialized = False
         self.bs = batch_size
         self.silu_logD = nn.SiLU()
         self.silu_1 = nn.SiLU()
@@ -132,7 +124,6 @@ class ResNetBlock(nn.Module):
             self.norm_1 = nn.BatchNorm2d(num_features=in_channels)
             self.norm_2 = nn.BatchNorm2d(num_features=out_channels)
 
-
     def forward(self, x, time_emb, log_D_proj=None):
         if log_D_proj != None:
             bx, cx, hx, wx = x.shape
@@ -141,15 +132,6 @@ class ResNetBlock(nn.Module):
                 log_D_proj = F.interpolate(log_D_proj, size=(hp // (hp // hx), wp // (hp // hx)), mode="bilinear",
                                            align_corners=False)
             x = x + log_D_proj
-            # bx, cx, hx, wx = x.shape
-            # bp, cp, hp, wp = log_D_proj.shape
-            # if hx != hp and wx != wp:
-            #     log_D_proj = F.interpolate(log_D_proj, size=(hp // (hp // hx), wp // (hp // hx)), mode="bilinear",
-            #                                align_corners=False)
-            # x = torch.cat([x, log_D_proj], dim=1)
-            # x = self.norm_logD(x)
-            # x = self.silu_logD(x)
-            # x = self.conv_logD(x)
         x = x + self.te_block(time_emb)[:, :, None, None]
         r = self.norm_1(x)
         r = self.silu_1(r)
@@ -174,15 +156,6 @@ class ResNetMiddleBlock(ResNetBlock):
             if bx == bp and cp == 1 and hx != hp and wx != wp:
                 log_D_proj = F.interpolate(log_D_proj, size=(hp // 2, wp // 2), mode="bilinear", align_corners=False)
             x = x + log_D_proj
-            # bx, cx, hx, wx = x.shape
-            # bp, cp, hp, wp = log_D_proj.shape
-            # if hx != hp and wx != wp:
-            #     log_D_proj = F.interpolate(log_D_proj, size=(hp // (hp // hx), wp // (hp // hx)), mode="bilinear",
-            #                                align_corners=False)
-            # x = torch.cat([x, log_D_proj], dim=1)
-            # x = self.norm_logD(x)
-            # x = self.silu_logD(x)
-            # x = self.conv_logD(x)
         x = x + self.te_block(time_emb)[:, :, None, None]
         r = self.norm_1(x)
         r = self.silu_1(r)
@@ -247,7 +220,8 @@ class MyUNet(nn.Module):
         else:
             self.norm_logD = nn.BatchNorm2d(num_features=self.orig_img_channels + 1)
         self.act_logD = nn.SiLU()
-        self.prepare_with_log_D_proj = nn.Conv2d(self.orig_img_channels + 1, self.orig_img_channels, kernel_size=3, padding=1, stride=1)
+        self.prepare_with_log_D_proj = nn.Conv2d(self.orig_img_channels + 1, self.orig_img_channels, kernel_size=3,
+                                                 padding=1, stride=1)
 
         self.prepare = nn.Conv2d(self.orig_img_channels, first_out_C, kernel_size=1, padding=0,
                                  stride=1)  # Не меняем изображение, просто подготавливаем его для дальнейшей обработки, увеличивая кол-во каналов (линейное преобразование)
@@ -310,10 +284,6 @@ class MyUNet(nn.Module):
 
     def forward(self, x, text_emb, time_emb, attension_mask, log_D_proj=None):
         if log_D_proj != None:
-            # x = torch.cat([x, log_D_proj], dim=1)  # x: [B, C, H, W], log_D: [B, 1, H, W] -> [B, C+1, H, W]
-            # x = self.norm_logD(x)
-            # x = self.act_logD(x)
-            # x = self.prepare_with_log_D_proj(x)
             bx, cx, hx, wx = x.shape
             bp, cp, hp, wp = log_D_proj.shape
             if hx != hp and wx != wp:
@@ -326,14 +296,12 @@ class MyUNet(nn.Module):
         for i in range(0, len(self.down_blocks), 2):
             down = self.down_blocks[i]
             x = down(x, time_emb, log_D_proj)
-            # x = down(x, time_emb)
             skip_connections.append(x)
             downsample = self.down_blocks[i + 1]
             x = downsample(x)
         # Bottleneck
         for bn in self.bottleneck:
             x = bn(x, text_emb, time_emb, attension_mask, log_D_proj)
-            # x = bn(x, text_emb, time_emb, attension_mask)
         # Декодер (upsampling)
         i = 0
         for decoder in self.up_blocks:
@@ -344,7 +312,6 @@ class MyUNet(nn.Module):
                 i += 1
             elif isinstance(decoder, ResNetBlock) or isinstance(decoder, ResNetMiddleBlock):
                 x = decoder(x, time_emb, log_D_proj)
-                # x = decoder(x, time_emb)
             elif isinstance(decoder, CrossAttentionMultiHead):
                 x = decoder(x, text_emb, attension_mask)
         x = self.up_final(x)

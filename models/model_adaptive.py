@@ -306,12 +306,9 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
                                                       'val_loss': math.inf}})  # Если модель была обучена, но во время её обучения ещё не был реализован функционал сохранения истории обучения
         print('Веса и данные ddpm adaptive загружены!')
 
-
     # Функция для reverse diffusion
     def reverse_diffusion(self, text_embedding, attn_mask, sheduler, text_descr_loader):
         # Инициализация случайного шума (начало процесса)
-        # mu, D = self.model.adaptive_block.get_current_variance(text_descr_loader, self.device)
-        # sheduler.update_coeffs(D)
         x_t = torch.randn(hyperparams.BATCH_SIZE, hyperparams.CHANNELS, hyperparams.IMG_SIZE, hyperparams.IMG_SIZE,
                           device=self.device)  # (B, C, H, W)
         t_tensor = torch.arange(0, hyperparams.T, 1, dtype=torch.int, device=self.device)
@@ -329,12 +326,8 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
             i = 0
             for step in tqdm(range(hyperparams.T - 1, -1, -1), colour='white'):
                 self.signal_progress.emit(int((i / hyperparams.T) * 100))
-                # log_D = torch.ones_like(x_t)
-                # log_D = torch.zeros_like(x_t)
                 log_D, mu = self.model.adaptive_block(text_embedding, attn_mask)
                 log_D = self.model.act_logD(log_D)
-                # mu = self.model.act_mu(mu)
-                # log_D_proj = self.model.net_log(log_D)
                 time_embedding = diff_proc.get_time_embedding(t_tensor[step], hyperparams.TIME_EMB_DIM)
                 predicted_noise = self.model.unet_block(x_t, text_embedding, time_embedding, attn_mask, log_D)
                 x_t = (1 / torch.sqrt(sheduler.a[step])) * (
@@ -345,8 +338,7 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
                 #     noise = torch.randn_like(x_t, device=next(model.parameters()).device) * (1 - sheduler.a[step]).sqrt() * 0.1
                 #     x_t += noise
                 if i % 20 == 0:
-                    # hyperparams.VIZ_STEP = True
-                    # этот модуль выполняет нормализацию по максимуму!
+                    # этот модуль выполняет нормализацию по максимуму
                     vutils.save_image(x_t, f"trained/denoising_adapt/step_{step}.png", normalize=True)
                 i += 1
         images = []
@@ -356,7 +348,7 @@ class EncapsulatedModelAdaptive(model_ddpm.ModelInOnePlace):
         imageio.mimsave("trained/denoising_adapt/denoising_process.gif", images, duration=0.3)  # 0.3 секунды на кадр
         self.signal_progress.emit(0)
         vutils.save_image(x_t, f"trained/denoising_adapt/denoised_result.png", normalize=True)
-        x_t = self.custom_normalize(x_t) # перевод в исходный диапазон - [0, 1]
+        x_t = self.custom_normalize(x_t)  # перевод в исходный диапазон - [0, 1]
         return x_t, "trained/denoising_adapt/denoised_result.png"
 
     def custom_normalize(self, tensor):
