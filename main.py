@@ -413,5 +413,5 @@ def common_pipeline():
 
 
 if __name__ == '__main__':
-    # main()
-    common_pipeline()
+    main()
+    # common_pipeline()
